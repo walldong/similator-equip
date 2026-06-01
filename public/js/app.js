@@ -462,6 +462,53 @@ createApp({
             }
         }
         
+        // 自动保存（静默保存，不显示提示）
+        let autoSaveTimer = null;
+        function autoSave() {
+            // 防抖，500ms内多次调用只执行一次
+            if (autoSaveTimer) clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(async () => {
+                try {
+                    // 保存用户数据
+                    await fetch(`${API_BASE}/save`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: user.value.id,
+                            data: {
+                                level: user.value.level,
+                                exp: user.value.exp,
+                                gold: user.value.gold,
+                                currentHp: user.value.currentHp
+                            }
+                        })
+                    });
+                    
+                    // 保存装备数据
+                    const allEquipments = [
+                        ...inventory.value,
+                        ...Object.values(equippedItems.value).filter(e => e)
+                    ];
+                    
+                    await fetch(`${API_BASE}/equipments/save`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: user.value.id,
+                            equipments: allEquipments,
+                            equippedSlots: Object.fromEntries(
+                                Object.entries(equippedItems.value)
+                                    .filter(([, v]) => v)
+                                    .map(([k, v]) => [k, v.id])
+                            )
+                        })
+                    });
+                } catch (e) {
+                    console.error('自动保存失败', e);
+                }
+            }, 500);
+        }
+        
         // 恢复生命
         function healPlayer() {
             user.value.currentHp = maxHp.value;
@@ -1160,6 +1207,19 @@ createApp({
             pendingLoot.value = [];
         }
         
+        // 复活
+        function respawn() {
+            user.value.currentHp = maxHp.value;
+            inBattle.value = false;
+            inDungeon.value = false;
+            currentDungeon.value = null;
+            battleResult.value = null;
+            mapScale.value = 1;
+            mapOffset.value = { x: 0, y: 0 };
+            addLog('💚 已复活，生命值已恢复', 'success');
+            autoSave();
+        }
+        
         // 增加经验
         function addExp(amount) {
             user.value.exp += amount;
@@ -1513,6 +1573,7 @@ createApp({
             pickupLoot,
             abandonLoot,
             continueAfterBattle,
+            respawn,
             exitDungeon,
             
             // 地图控制
