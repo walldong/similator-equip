@@ -45,9 +45,10 @@ const StatNames = {
 };
 
 // 百分比类型词条（显示时带%）
+// 百分比类型词条（显示时带%）
 const PercentStats = [
     'ATK_PERCENT', 'DEF_PERCENT', 'HP_PERCENT', 'SPD_PERCENT',
-    'CRIT_RATE', 'CRIT_DMG', 'SKILL_CD'
+    'CRIT_RATE', 'CRIT_DMG', 'SKILL_CD', 'MOVE_SPEED'
 ];
 
 // ==================== 词条基础数值 ====================
@@ -428,11 +429,11 @@ function generateMainAffix(slot, level, quality) {
     const stat = MainAffixBySlot[slot];
     if (!stat) return null;
     
-    const baseValue = AffixBaseValues[stat];
-    const qualityMult = QualityValueMultiplier[quality];
-    const levelMult = 1 + level * 0.12;
+    const baseValue = AffixBaseValues[stat] || 5;
+    const qualityMult = QualityValueMultiplier[quality] || 1.0;
+    const levelMult = 1 + Math.max(0, level) * 0.12;
     
-    const value = Math.floor(baseValue * qualityMult * levelMult);
+    const value = Math.max(1, Math.floor(baseValue * qualityMult * levelMult));
     
     return { stat, value };
 }
@@ -442,7 +443,7 @@ function generateMainAffix(slot, level, quality) {
  */
 function generateSubAffixes(slot, level, quality, existingStats = []) {
     const result = [];
-    const usedStats = new Set(existingStats);
+    const usedStats = new Set(existingStats.filter(s => s)); // 过滤掉undefined/null
     
     // 合并通用词条和部位特有词条
     const allAffixes = [
@@ -473,13 +474,14 @@ function generateSubAffixes(slot, level, quality, existingStats = []) {
             }
         }
         
-        // 计算数值
+        // 计算数值（添加安全检查）
         const baseValue = AffixBaseValues[selectedStat];
-        const qualityMult = QualityValueMultiplier[quality];
-        const levelMult = 1 + level * 0.06;
+        const qualityMult = QualityValueMultiplier[quality] || 1.0;
+        const levelMult = 1 + Math.max(0, level) * 0.06;
         const variance = 0.8 + Math.random() * 0.4; // 80%~120%波动
         
-        const value = Math.floor(baseValue * qualityMult * levelMult * variance);
+        // 确保所有值都有效
+        const value = Math.max(1, Math.floor((baseValue || 5) * qualityMult * levelMult * variance));
         
         result.push({ stat: selectedStat, value });
         usedStats.add(selectedStat);

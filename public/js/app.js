@@ -595,7 +595,25 @@ createApp({
             const roll = Math.random() * 100;
             
             if (roll < successRate) {
+                const oldLevel = item.level;
                 item.level++;
+                
+                // 升级主词条（每次强化增加5-10%）
+                if (item.mainAffix) {
+                    const mainIncrease = Math.ceil(item.mainAffix.value * (5 + Math.random() * 5) / 100);
+                    item.mainAffix.value += mainIncrease;
+                }
+                
+                // 每+3级升级一个随机副词条
+                if (EnhanceUpgradeLevels.includes(item.level)) {
+                    if (item.subAffixes && item.subAffixes.length > 0) {
+                        const result = upgradeRandomSubAffix(item.subAffixes);
+                        if (result) {
+                            addLog(`✨ 副词条强化！${getStatName(result.stat)}: ${formatStatValue(result.stat, getFinalStatValue(result.oldValue, item.quality))} → ${formatStatValue(result.stat, getFinalStatValue(result.newValue, item.quality))}`, 'success');
+                        }
+                    }
+                }
+                
                 addLog(`强化成功！+${item.level}`, 'success');
             } else if (roll < successRate + brokenRate) {
                 item.isBroken = true;
@@ -1157,8 +1175,7 @@ createApp({
         function createEquipment(slot, level, quality) {
             // 使用新的词条生成系统
             const mainAffix = generateMainAffix(slot, level + 1, quality);
-            const subAffixCount = QualitySubAffixCount[quality] || 3;
-            const subAffixes = generateSubAffixes(slot, subAffixCount, level + 1, quality, [mainAffix?.stat]);
+            const subAffixes = generateSubAffixes(slot, level + 1, quality, [mainAffix?.stat]);
             
             return {
                 id: Date.now() + Math.random(),
@@ -1374,7 +1391,9 @@ createApp({
         
         // 计算属性最终值
         function getFinalStatValue(value, quality) {
-            return Math.floor(value * (QualityMultipliers[quality] || 1));
+            const safeValue = (typeof value === 'number' && !isNaN(value)) ? value : 0;
+            const mult = QualityMultipliers[quality] || 1;
+            return Math.max(0, Math.floor(safeValue * mult));
         }
         
         // 显示Tooltip
