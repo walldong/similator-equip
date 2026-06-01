@@ -640,6 +640,9 @@ createApp({
                 return;
             }
             
+            // 切换到副本页签
+            mainTab.value = 'dungeon';
+            
             currentDungeon.value = dungeon;
             inDungeon.value = true;
             
@@ -1291,15 +1294,13 @@ createApp({
             return StatNames[stat] || stat;
         }
         
-        // 格式化属性值（使用data.js中的PercentStats）
-        function formatStatValue(stat, value, quality) {
-            const mult = QualityMultipliers[quality] || 1;
-            const finalValue = Math.floor(value * mult);
-            // 使用PercentStats判断是否为百分比
+        // 格式化属性值
+        function formatStatValue(stat, value) {
+            // 如果value已经是数字，直接判断是否为百分比类型
             if (PercentStats && PercentStats.includes(stat)) {
-                return finalValue + '%';
+                return value + '%';
             }
-            return finalValue;
+            return value;
         }
         
         // 计算属性最终值
@@ -1402,10 +1403,36 @@ createApp({
             }
         }
         
+        // 键盘移动处理
+        function handleKeydown(e) {
+            // 只在副本页签且不在战斗中时响应
+            if (mainTab.value !== 'dungeon' || !inDungeon.value || inBattle.value) return;
+            
+            const keyMap = {
+                'KeyW': [0, -1],
+                'KeyA': [-1, 0],
+                'KeyS': [0, 1],
+                'KeyD': [1, 0],
+                'ArrowUp': [0, -1],
+                'ArrowLeft': [-1, 0],
+                'ArrowDown': [0, 1],
+                'ArrowRight': [1, 0]
+            };
+            
+            const move = keyMap[e.code];
+            if (move) {
+                e.preventDefault();
+                movePlayer(move[0], move[1]);
+            }
+        }
+        
         onMounted(() => {
             addLog('游戏加载完成，请登录或注册', 'info');
             // 尝试恢复登录状态
             restoreSession();
+            
+            // 添加键盘监听
+            window.addEventListener('keydown', handleKeydown);
         });
         
         // 返回所有状态和方法
@@ -1413,6 +1440,7 @@ createApp({
             // 状态
             isLoggedIn,
             loginTab,
+            mainTab,
             loginUsername,
             registerUsername,
             loginMessage,
