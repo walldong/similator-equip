@@ -466,6 +466,7 @@ createApp({
         function healPlayer() {
             user.value.currentHp = maxHp.value;
             addLog('💚 生命已恢复', 'success');
+            autoSave();
         }
         
         // 选择物品
@@ -512,6 +513,7 @@ createApp({
             selectedItem.value = null;
             
             addLog(`穿戴了 ${getSlotName(slot)}`, 'success');
+            autoSave();
         }
         
         // 卸下装备
@@ -531,6 +533,7 @@ createApp({
             }
             
             addLog(`卸下了 ${getSlotName(slot)}`, 'info');
+            autoSave();
         }
         
         // 强化装备
@@ -568,6 +571,7 @@ createApp({
                 item.level = Math.max(0, item.level - 1);
                 addLog(`强化失败 +${item.level}`, 'warning');
             }
+            autoSave();
         }
         
         // 删除装备
@@ -583,6 +587,7 @@ createApp({
             
             selectedItem.value = null;
             addLog('丢弃了装备', 'warning');
+            autoSave();
         }
         
         // 开始合成
@@ -625,6 +630,7 @@ createApp({
             addLog(`合成成功！获得 ${getQualityName(newItem.quality)} ${getSlotName(newItem.slot)}`, 'success');
             
             cancelSynthesis();
+            autoSave();
         }
         
         // 清空合成槽
@@ -1131,6 +1137,7 @@ createApp({
             user.value.gold += battleResult.value.gold;
             
             closeBattle();
+            autoSave();
         }
         
         // 放弃掉落
@@ -1138,6 +1145,7 @@ createApp({
             addExp(battleResult.value.exp);
             user.value.gold += battleResult.value.gold;
             closeBattle();
+            autoSave();
         }
         
         // 继续战斗后
@@ -1170,6 +1178,7 @@ createApp({
             mapScale.value = 1;
             mapOffset.value = { x: 0, y: 0 };
             addLog('退出副本', 'info');
+            autoSave();
         }
         
         // 地图缩放
