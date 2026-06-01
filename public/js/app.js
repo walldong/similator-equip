@@ -14,6 +14,9 @@ createApp({
         const isLoggedIn = ref(false);
         const loginTab = ref('login');
         
+        // 主页签状态
+        const mainTab = ref('character'); // 'character' | 'dungeon'
+        
         // 副本数据
         const dungeons = Dungeons;
         const loginUsername = ref('');
