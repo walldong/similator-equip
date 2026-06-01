@@ -1,0 +1,23 @@
+{
+  "name": "similator-equip",
+  "version": "3.0.0",
+  "description": "装备强化模拟器 - Vue 3 + SQLite",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js"
+  },
+  "keywords": [
+    "vue",
+    "sqlite",
+    "game",
+    "rpg"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1"
+  }
+}

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>装备强化模拟器 - Vue版</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录界面 -->
+        <div v-if="!isLoggedIn" class="login-screen">
+            <div class="login-container">
+                <div class="login-header">
+                    <h1>⚔️ 装备强化模拟器</h1>
+                    <p class="login-subtitle">Vue 3 + SQLite</p>
+                </div>
+                
+                <div class="login-tabs">
+                    <button 
+                        :class="['tab-btn', { active: loginTab === 'login' }]"
+                        @click="loginTab = 'login'"
+                    >登录</button>
+                    <button 
+                        :class="['tab-btn', { active: loginTab === 'register' }]"
+                        @click="loginTab = 'register'"
+                    >注册</button>
+                </div>
+                
+                <!-- 登录表单 -->
+                <form v-if="loginTab === 'login'" @submit.prevent="handleLogin" class="login-form">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" v-model="loginUsername" placeholder="输入用户名" autocomplete="off">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full" :disabled="loading">
+                        {{ loading ? '登录中...' : '登录' }}
+                    </button>
+                    <p class="form-hint">首次使用请先注册</p>
+                </form>
+                
+                <!-- 注册表单 -->
+                <form v-else @submit.prevent="handleRegister" class="login-form">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" v-model="registerUsername" placeholder="输入用户名" autocomplete="off">
+                        <p class="input-hint">字母、数字、下划线、中文，最长20字符</p>
+                    </div>
+                    <button type="submit" class="btn btn-success btn-full" :disabled="loading">
+                        {{ loading ? '注册中...' : '注册' }}
+                    </button>
+                </form>
+                
+                <div v-if="loginMessage" :class="['login-message', loginMessageType]">
+                    {{ loginMessage }}
+                </div>
+                
+                <div class="login-footer">
+                    <p>💡 数据保存在服务器数据库</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 游戏主界面 -->
+        <div v-else class="game-screen">
+            <div class="container">
+                <!-- 头部 -->
+                <header>
+                    <h1>⚔️ 装备强化模拟器</h1>
+                    <div class="user-info">
+                        <span>{{ user.username }} (Lv.{{ user.level }})</span>
+                        <button @click="handleLogout" class="btn btn-small">退出</button>
+                    </div>
+                    <p class="subtitle">Vue 3 + SQLite</p>
+                </header>
+
+                <main>
+                    <!-- 角色面板 -->
+                    <section class="character-panel">
+                        <h2>🧙 角色</h2>
+                        <div class="character-avatar">
+                            <div class="avatar-icon">🧙‍♂️</div>
+                            <div class="character-name">Lv.{{ user.level }}</div>
+                        </div>
+                        <div class="character-stats">
+                            <div class="stat-row">
+                                <span class="stat-label">💰 金币</span>
+                                <span class="stat-value">{{ user.gold }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">⚔️ 攻击</span>
+                                <span class="stat-value">{{ Math.floor(stats.atk) }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">🛡️ 防御</span>
+                                <span class="stat-value">{{ Math.floor(stats.def) }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">❤️ 生命</span>
+                                <span class="stat-value">{{ Math.floor(user.currentHp) }}/{{ maxHp }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">💨 速度</span>
+                                <span class="stat-value">{{ Math.floor(stats.spd) }}</span>
+                            </div>
+                        </div>
+                        <div class="exp-bar">
+                            <div class="exp-fill" :style="{ width: expPercent + '%' }"></div>
+                            <span>{{ user.exp }}/{{ expForNext }}</span>
+                        </div>
+                        <button @click="healPlayer" class="btn btn-primary btn-full" style="margin-top:10px">
+                            💚 恢复生命
+                        </button>
+                        
+                        <!-- 装备槽位 -->
+                        <div class="equipment-slots">
+                            <h3>装备槽</h3>
+                            <div class="slots-grid">
+                                <div v-for="(item, slot) in equippedItems" :key="slot"
+                                     :class="['slot', { filled: item, empty: !item }, item ? 'quality-' + item.quality : null]"
+                                     @click="item && unequipItem(slot)"
+                                     @mouseenter="item && showTooltip($event, item)"
+                                     @mouseleave="hideTooltip">
+                                    <div class="slot-icon">{{ getSlotIcon(slot) }}</div>
+                                    <div class="slot-label">{{ getSlotName(slot) }}</div>
+                                    <div v-if="item" class="slot-item">
+                                        <span :class="['enhance-level', getEnhanceClass(item.level)]">+{{ item.level }}</span>
+                                    </div>
+                                    <div v-else class="slot-empty-indicator">空</div>
+                                    <div v-if="item" class="slot-glow" :style="{ background: getQualityGlow(item.quality) }"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 背包面板 -->
+                    <section class="inventory-panel">
+                        <h2>🎒 背包 <span>{{ inventory.length }}/50</span></h2>
+                        <div class="inventory-actions">
+                            <button @click="saveGame" class="btn btn-success">💾 保存</button>
+                        </div>
+                        <div class="inventory-grid">
+                            <div v-for="(item, index) in inventory" 
+                                 :key="item.id || index"
+                                 :class="['inventory-item', { selected: selectedItem === item }, 'quality-' + item.quality]"
+                                 @click="selectItem(item)"
+                                 @mouseenter="showTooltip($event, item)"
+                                 @mouseleave="hideTooltip">
+                                <div class="item-icon" :style="{ borderColor: getQualityColor(item.quality) }">
+                                    {{ getSlotIcon(item.slot) }}
+                                </div>
+                                <span :class="['item-level', getEnhanceClass(item.level)]">+{{ item.level }}</span>
+                                <div v-if="item.isBroken" class="broken-badge">💔</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 操作面板 -->
+                    <section v-if="selectedItem" class="action-panel">
+                        <h2>📋 装备操作</h2>
+                        <div class="selected-info">
+                            <div :class="['item-icon', 'large', 'quality-' + selectedItem.quality]" 
+                                 :style="{ borderColor: getQualityColor(selectedItem.quality) }">
+                                {{ getSlotIcon(selectedItem.slot) }}
+                                <div class="slot-glow" :style="{ background: getQualityGlow(selectedItem.quality) }"></div>
+                            </div>
+                            <div class="item-details">
+                                <div :class="['item-name', 'quality-' + selectedItem.quality]">
+                                    {{ getQualityName(selectedItem.quality) }} {{ getSlotName(selectedItem.slot) }}
+                                </div>
+                                <div class="item-stats">
+                                    <span :class="['enhance-level', getEnhanceClass(selectedItem.level)]">+{{ selectedItem.level }}</span>
+                                    <span v-if="selectedItem.isBroken" class="broken-text">已损坏</span>
+                                </div>
+                                <div v-if="selectedItem.mainAffix" class="item-main-stat">
+                                    {{ getStatName(selectedItem.mainAffix.stat) }}: +{{ getFinalStatValue(selectedItem.mainAffix.value, selectedItem.quality) }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="action-buttons">
+                            <button @click="equipItem" class="btn btn-primary" :disabled="selectedItem.isBroken">穿戴</button>
+                            <button @click="enhanceItem" class="btn btn-enhance" :disabled="selectedItem.isBroken || selectedItem.level >= 21">强化</button>
+                            <button @click="startSynthesis" class="btn btn-synth" :disabled="selectedItem.isBroken">选择合成</button>
+                            <button @click="deleteItem" class="btn btn-danger">丢弃</button>
+                        </div>
+                    </section>
+
+                    <!-- 副本面板 -->
+                    <section class="dungeon-panel">
+                        <h2>🏰 副本 <span v-if="dungeonProgress" style="color:#4fc3f7;font-size:0.8rem">{{ dungeonProgress }}</span></h2>
+                        
+                        <!-- 副本列表 -->
+                        <div v-if="!inDungeon" class="dungeon-list">
+                            <!-- 固定副本 -->
+                            <div class="dungeon-category">
+                                <div class="category-title">固定副本</div>
+                                <div class="category-items">
+                                    <div v-for="dungeon in dungeons.filter(d => !d.isRandom)" :key="dungeon.id"
+                                         :class="['dungeon-item', { disabled: user.level < dungeon.level }]"
+                                         @click="enterDungeon(dungeon)">
+                                        <div class="dungeon-icon">{{ dungeon.icon }}</div>
+                                        <div class="dungeon-info">
+                                            <div class="dungeon-name">{{ dungeon.name }}</div>
+                                            <div class="dungeon-desc">{{ dungeon.width }}x{{ dungeon.height }} 地图</div>
+                                        </div>
+                                        <div class="dungeon-level">Lv.{{ dungeon.level }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 随机副本 -->
+                            <div class="dungeon-category">
+                                <div class="category-title">🎲 随机地图</div>
+                                <div class="category-items">
+                                    <div v-for="dungeon in dungeons.filter(d => d.isRandom)" :key="dungeon.id"
+                                         :class="['dungeon-item', { disabled: user.level < dungeon.level }]"
+                                         @click="enterDungeon(dungeon)">
+                                        <div class="dungeon-icon">{{ dungeon.icon }}</div>
+                                        <div class="dungeon-info">
+                                            <div class="dungeon-name">{{ dungeon.name }}</div>
+                                            <div class="dungeon-desc">
+                                                {{ dungeon.mapSize === 'small' ? '20x20' : dungeon.mapSize === 'medium' ? '50x50' : '100x100' }} 随机地图
+                                            </div>
+                                        </div>
+                                        <div class="dungeon-level">Lv.{{ dungeon.level }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 地图视图 -->
+                        <div v-else class="dungeon-map-container">
+                            <div class="dungeon-map-header">
+                                <span>{{ currentDungeon?.name }} ({{ dungeonState.width }}x{{ dungeonState.height }})</span>
+                                <div class="map-controls">
+                                    <button class="btn btn-small" @click="zoomMap(0.2)">➕</button>
+                                    <button class="btn btn-small" @click="zoomMap(-0.2)">➖</button>
+                                    <button class="btn btn-small" @click="centerOnPlayer">🎯</button>
+                                    <button class="btn btn-small" @click="resetMapView">↺</button>
+                                    <button class="btn btn-small btn-danger" 
+                                            :disabled="!dungeonState.bossDefeated"
+                                            @click="exitDungeon">🚪 退出</button>
+                                </div>
+                            </div>
+                            
+                            <div class="map-view-container">
+                                <!-- 主地图 -->
+                                <div class="dungeon-map-wrapper"
+                                     @mousedown="startDrag"
+                                     @mousemove="onDrag"
+                                     @mouseup="endDrag"
+                                     @mouseleave="endDrag"
+                                     @wheel="onWheel">
+                                    <div class="dungeon-map" 
+                                         :style="{ gridTemplateColumns: `repeat(${dungeonState.width}, 40px)`, ...mapContainerStyle }">
+                                        <div v-for="(cell, index) in mapCells" :key="index"
+                                             :class="['map-cell', cell.type, { player: cell.isPlayer, defeated: cell.defeated }]">
+                                            {{ cell.icon }}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 小地图 -->
+                                <div v-if="showMiniMap && dungeonState.width > 10" class="mini-map-container">
+                                    <div class="mini-map-title">小地图</div>
+                                    <div class="mini-map"
+                                         :style="{ gridTemplateColumns: `repeat(${dungeonState.width}, 4px)` }">
+                                        <div v-for="(cell, index) in miniMapCells" :key="index"
+                                             :class="['mini-cell', cell.type, { player: cell.isPlayer, defeated: cell.defeated }]">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="dungeon-map-controls">
+                                <button class="btn btn-direction" @click="movePlayer(0, -1)">⬆️</button>
+                                <div class="direction-row">
+                                    <button class="btn btn-direction" @click="movePlayer(-1, 0)">⬅️</button>
+                                    <button class="btn btn-direction" @click="movePlayer(0, 1)">⬇️</button>
+                                    <button class="btn btn-direction" @click="movePlayer(1, 0)">➡️</button>
+                                </div>
+                            </div>
+                            <div class="dungeon-map-hint">
+                                {{ dungeonState.bossDefeated ? '✅ 所有Boss已击败，可以退出副本' : '📍 探索地图，击败所有Boss后可退出' }}
+                            </div>
+                        </div>
+                        
+                        <!-- 战斗面板 -->
+                        <div v-if="inBattle" class="battle-panel">
+                            <div class="battle-header">
+                                <h3>{{ battleState.isBoss ? '⚔️ BOSS战' : '⚔️ 遭遇战' }}</h3>
+                            </div>
+                            <div class="battle-info">
+                                <div class="monster-display">
+                                    <div class="monster-icon">{{ battleState.monsterIcon }}</div>
+                                    <div class="monster-name">{{ battleState.monsterName }}</div>
+                                    <div class="hp-bar">
+                                        <div class="hp-fill monster-hp" :style="{ width: monsterHpPercent + '%' }"></div>
+                                        <span>HP: {{ battleState.monsterHp }}</span>
+                                    </div>
+                                </div>
+                                <div class="vs-divider">VS</div>
+                                <div class="player-display">
+                                    <div class="player-icon">🧙‍♂️</div>
+                                    <div class="player-name">{{ user.username }}</div>
+                                    <div class="hp-bar">
+                                        <div class="hp-fill player-hp" :style="{ width: playerHpPercent + '%' }"></div>
+                                        <span>HP: {{ Math.floor(user.currentHp) }}/{{ maxHp }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="battle-log">
+                                <div v-for="(log, i) in battleLogs" :key="i" :class="['log-entry', log.type]">
+                                    {{ log.text }}
+                                </div>
+                            </div>
+                            <div v-if="battleResult" class="battle-result" :class="battleResult.victory ? 'victory' : 'defeat'">
+                                <h4>{{ battleResult.victory ? '🎉 胜利！' : '💀 失败' }}</h4>
+                                <div v-if="battleResult.victory">获得: {{ battleResult.exp }} 经验, {{ battleResult.gold }} 金币</div>
+                                <div v-else class="defeat-hint">正在退出副本...</div>
+                                <div v-if="battleResult.drops.length" class="loot-items">
+                                    <div v-for="drop in battleResult.drops" :key="drop.id"
+                                         :style="{ color: getQualityColor(drop.quality) }">
+                                        {{ getSlotName(drop.slot) }} +{{ drop.level }}
+                                    </div>
+                                </div>
+                                <div class="loot-actions" v-if="battleResult.drops.length">
+                                    <button @click="pickupLoot" class="btn btn-success">📦 拾取全部</button>
+                                    <button @click="abandonLoot" class="btn btn-danger">🗑️ 放弃掉落</button>
+                                </div>
+                                <button v-else-if="battleResult.victory" @click="continueAfterBattle" class="btn btn-primary">继续</button>
+                            </div>
+                            <div v-else class="battle-actions">
+                                <button @click="executeAttack" class="btn btn-primary" :disabled="attacking">⚔️ 攻击</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 合成面板 -->
+                    <section v-if="synthesis.active" class="synth-panel">
+                        <h2>🔄 装备合成</h2>
+                        <div class="synth-warning">⚠️ 选择两件相同品质的装备合成</div>
+                        <div class="synth-container">
+                            <div :class="['synth-slot', { filled: synthesis.slot1 }]" @click="synthesis.slot1 && clearSynthesis(1)">
+                                <div v-if="synthesis.slot1" class="synth-item">
+                                    {{ getSlotIcon(synthesis.slot1.slot) }} +{{ synthesis.slot1.level }}
+                                </div>
+                                <div v-else class="empty-slot">选择装备 1</div>
+                            </div>
+                            <div class="synth-arrow">➡️</div>
+                            <div :class="['synth-slot', { filled: synthesis.slot2 }]" @click="synthesis.slot2 && clearSynthesis(2)">
+                                <div v-if="synthesis.slot2" class="synth-item">
+                                    {{ getSlotIcon(synthesis.slot2.slot) }} +{{ synthesis.slot2.level }}
+                                </div>
+                                <div v-else class="empty-slot">选择装备 2</div>
+                            </div>
+                        </div>
+                        <div class="synth-actions">
+                            <button @click="doSynthesis" class="btn btn-synth" :disabled="!synthesis.slot1 || !synthesis.slot2">✨ 合成</button>
+                            <button @click="cancelSynthesis" class="btn btn-secondary">取消</button>
+                        </div>
+                    </section>
+
+                    <!-- 日志面板 -->
+                    <section class="log-panel">
+                        <h2>📜 日志</h2>
+                        <div class="log-container">
+                            <div v-for="(entry, i) in logs" :key="i" :class="['log-entry', entry.type]">
+                                {{ entry.message }}
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <!-- 全局装备悬浮提示 -->
+                    <div v-if="tooltip.visible" 
+                         class="equip-tooltip-fixed"
+                         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
+                        <div class="tooltip-header">
+                            <span class="tooltip-icon">{{ getSlotIcon(tooltip.item?.slot) }}</span>
+                            <div class="tooltip-title">
+                                <div :class="['tooltip-name', tooltip.item ? 'quality-' + tooltip.item.quality : '']">
+                                    {{ getQualityName(tooltip.item?.quality) }} {{ getSlotName(tooltip.item?.slot) }}
+                                </div>
+                                <div :class="['tooltip-level', getEnhanceClass(tooltip.item ? tooltip.item.level : 0)]">
+                                    强化等级 +{{ tooltip.item?.level }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tooltip-body">
+                            <div v-if="tooltip.item?.mainAffix" class="tooltip-main">
+                                <span class="stat-name">{{ getStatName(tooltip.item.mainAffix.stat) }}</span>
+                                <span class="stat-value">+{{ getFinalStatValue(tooltip.item.mainAffix.value, tooltip.item?.quality) }}</span>
+                            </div>
+                            <div v-if="tooltip.item?.subAffixes?.length" class="tooltip-subs">
+                                <div v-for="(sub, i) in tooltip.item.subAffixes" :key="i" class="tooltip-sub">
+                                    <span class="stat-name">{{ getStatName(sub.stat) }}</span>
+                                    <span class="stat-value">+{{ formatStatValue(sub.stat, sub.value, tooltip.item?.quality) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="tooltip.item?.isBroken" class="tooltip-broken">
+                            ⚠️ 装备已损坏
+                        </div>
+                        <div class="tooltip-hint">点击卸下装备</div>
+                    </div>
+                </main>
+
+                <footer>
+                    <p>装备强化模拟器 · Vue 3 + SQLite</p>
+                </footer>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/data.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
