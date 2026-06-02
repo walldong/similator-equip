@@ -22,6 +22,10 @@ export interface MapEntity {
   level: number;
   name: string;
   defeated?: boolean;
+  size?: number;           // 实体大小（格子数边长）：1=小怪, 2=精英, 3=Boss, 4=最终Boss
+  isMiniBoss?: boolean;    // 是否为小Boss
+  isFinalBoss?: boolean;   // 是否为最终Boss
+  miniBossIndex?: number;  // 小Boss索引 (0-3)
 }
 
 // 玩家位置（像素坐标）
@@ -45,6 +49,8 @@ export interface MapZone {
 
 // 完整地图数据
 export interface GameMap {
+  mapId?: number;         // 地图ID (1-6)
+  mapName?: string;       // 地图名称
   width: number;          // 格子宽度
   height: number;         // 格子高度
   tileSize: number;       // 格子像素大小
@@ -52,6 +58,13 @@ export interface GameMap {
   player: PlayerPosition;
   zones: MapZone[];
   stats: MapStats;
+  finalBossDefeated?: boolean;  // 最终Boss是否已击败
+  miniBossesDefeated?: number;  // 已击败的小Boss数量
+  totalMiniBosses?: number;     // 总小Boss数量
+  finalBossSpawned?: boolean;   // 最终Boss是否已召唤
+  finalBossSpawnX?: number;     // 最终Boss召唤X坐标
+  finalBossSpawnY?: number;     // 最终Boss召唤Y坐标
+  finalBoss?: { name: string; level: number };  // 最终Boss信息
 }
 
 // 地图统计
@@ -59,6 +72,7 @@ export interface MapStats {
   monsters: { total: number; defeated: number };
   elites: { total: number; defeated: number };
   bosses: { total: number; defeated: number };
+  miniBosses?: { total: number; defeated: number };
   chests: { total: number; opened: number };
 }
 

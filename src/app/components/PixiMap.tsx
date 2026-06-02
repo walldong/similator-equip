@@ -48,7 +48,6 @@ export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: 
     const endX = Math.min(map.width, startX + VIEW_SIZE);
     const endY = Math.min(map.height, startY + VIEW_SIZE);
     
-    // 修正起始位置
     startX = Math.max(0, endX - VIEW_SIZE);
     startY = Math.max(0, endY - VIEW_SIZE);
     
@@ -100,26 +99,60 @@ export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: 
       const newCellX = map.player.cellX + dx;
       const newCellY = map.player.cellY + dy;
       
-      // 边界检查
       if (newCellX >= 0 && newCellX < map.width && newCellY >= 0 && newCellY < map.height) {
         const cell = map.cells[newCellY]?.[newCellX];
+        const currentCell = map.cells[map.player.cellY]?.[map.player.cellX];
         
-        if (cell && cell.walkable) {
+        // 允许移动的条件：目标格子可通行，或者目标格子有实体，或者当前格子不可通行（卡住时）
+        const canMove = cell && (
+          cell.walkable || 
+          (cell.entity && !cell.entity.defeated) ||
+          (currentCell && !currentCell.walkable && !currentCell.entity?.defeated)
+        );
+        
+        if (canMove) {
           setMoveLock(true);
           
-          // 检查遭遇
           if (cell.entity && !cell.entity.defeated) {
             onEncounter(cell);
           } else {
             onMove(dx, dy);
           }
           
-          // 短暂锁定防止连续移动
           setTimeout(() => setMoveLock(false), 100);
         }
       }
     }
   }, [keys, map, moveLock, onMove, onEncounter]);
+
+  // 检查是否是实体的左上角格子（用于显示图标）
+  const isEntityOrigin = useCallback((cell: MapCell, x: number, y: number): boolean => {
+    if (!cell.entity) return false;
+    
+    const entity = cell.entity;
+    const size = entity.size || 1;
+    
+    if (size === 1) return true;
+    
+    const idParts = entity.id.split('_');
+    let startX: number, startY: number;
+    
+    if (entity.isMiniBoss) {
+      // 小Boss格式: miniboss_${index}_${x}_${y}
+      startX = parseInt(idParts[2]);
+      startY = parseInt(idParts[3]);
+    } else if (entity.isFinalBoss) {
+      // 最终Boss格式: finalboss_${x}_${y}_${name}
+      startX = parseInt(idParts[1]);
+      startY = parseInt(idParts[2]);
+    } else {
+      // 普通怪物格式: ${type}_${x}_${y}_${timestamp}_${random}
+      startX = parseInt(idParts[1]);
+      startY = parseInt(idParts[2]);
+    }
+    
+    return x === startX && y === startY;
+  }, []);
 
   // HP百分比
   const hpPercent = maxHp > 0 ? (currentHp / maxHp) * 100 : 0;
@@ -150,26 +183,51 @@ export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: 
               return <div key={`${x}-${y}`} className={styles.miniMapCell} style={{ background: '#111' }} />;
             }
             
-            // 背景色
-            const bgColor = cell.walkable ? CELL_COLORS[cell.terrain] : '#1a1a2e';
+            let bgColor = cell.walkable ? CELL_COLORS[cell.terrain] : '#1a1a2e';
             
-            // 实体
             let entityIcon = '';
-            if (cell.entity && !cell.entity.defeated) {
-              entityIcon = ENTITY_ICONS[cell.entity.type] || '';
+            let entitySize = 1;
+            const entity = cell.entity;
+            
+            if (entity && !entity.defeated) {
+              entitySize = entity.size || 1;
+              
+              if (entity.isFinalBoss) {
+                bgColor = '#2a0a0a';
+              } else if (entity.isMiniBoss) {
+                bgColor = '#1a1a3a';
+              } else if (entity.type === 'elite') {
+                bgColor = '#3a3a1a';
+              } else if (entity.type === 'boss') {
+                bgColor = '#3a1a3a';
+              }
+              
+              // 只在左上角显示图标，并放大覆盖整个实体区域
+              if (isEntityOrigin(cell, x, y)) {
+                entityIcon = ENTITY_ICONS[entity.type] || '';
+              }
             }
             
-            const cellClass = `${styles.miniMapCell} ${isPlayer ? styles.playerCell : ''} ${!cell.walkable ? styles.blocked : ''}`;
+            const cellClass = `${styles.miniMapCell} ${isPlayer ? styles.playerCell : ''} ${!cell.walkable && !cell.entity ? styles.blocked : ''}`;
             
             return (
               <div
                 key={`${x}-${y}`}
                 className={cellClass}
                 style={{ background: isPlayer ? '#4CAF50' : bgColor }}
-                title={`(${x}, ${y}) ${cell.terrain}${cell.entity ? ` - ${cell.entity.name} Lv.${cell.entity.level}` : ''}`}
+                title={`(${x}, ${y}) ${cell.terrain}${cell.entity ? ` - ${cell.entity.name} Lv.${cell.entity.level} (${cell.entity.size || 1}x${cell.entity.size || 1})` : ''}`}
               >
                 {isPlayer && <span className={styles.playerIcon}>🧙</span>}
-                {!isPlayer && entityIcon && <span>{entityIcon}</span>}
+                {!isPlayer && entityIcon && (
+                  <span 
+                    className={`${styles.entityIcon} ${entitySize === 2 ? styles.entity2x : entitySize === 3 ? styles.entity3x : entitySize >= 4 ? styles.entity4x : ''}`}
+                    style={{ 
+                      filter: entitySize >= 4 ? 'drop-shadow(0 0 8px #ff0000)' : entitySize >= 3 ? 'drop-shadow(0 0 6px #ff4500)' : entitySize >= 2 ? 'drop-shadow(0 0 4px #ffd700)' : 'none',
+                    }}
+                  >
+                    {entityIcon}
+                  </span>
+                )}
               </div>
             );
           })

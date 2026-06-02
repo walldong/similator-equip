@@ -48,16 +48,16 @@ async function initialize() {
   console.log('========================================');
   console.log('  初始化数据库和缓存...');
   console.log('========================================');
-  
+
   // 初始化数据库
   db = createDatabase(config.mysql);
   await db.initTables();
   console.log(`[DB] ${config.dbType.toUpperCase()} 连接成功`);
-  
+
   // 初始化缓存
   cache = createCache(config.redis);
   console.log('[Cache] Redis 连接成功');
-  
+
   console.log('========================================');
   console.log(`  服务器启动: http://localhost:${config.port}`);
   console.log('========================================');
@@ -80,11 +80,11 @@ async function validateEquipmentOwnership(userId, equipmentId) {
 async function getUserFullData(userId) {
   const user = await db.findUserById(userId);
   if (!user) return null;
-  
+
   const equipments = await db.getEquipmentsByUserId(userId);
   const equippedItems = {};
   const inventory = [];
-  
+
   for (const eq of equipments) {
     if (eq.equipped) {
       equippedItems[eq.slot] = eq;
@@ -92,9 +92,9 @@ async function getUserFullData(userId) {
       inventory.push(eq);
     }
   }
-  
+
   const stats = GameLogic.calculateTotalStats(user.level, Object.values(equippedItems).filter(e => e));
-  
+
   return { user, equipments, equippedItems, inventory, stats };
 }
 
@@ -103,7 +103,7 @@ async function getCachedUser(userId) {
   const cacheKey = `user:${userId}`;
   const cached = await cache.get(cacheKey);
   if (cached) return cached;
-  
+
   const data = await getUserFullData(userId);
   if (data) {
     await cache.set(cacheKey, data, 300); // 5分钟
@@ -194,7 +194,7 @@ app.post('/api/login', async (req, res) => {
     const user = await db.findUserByUsername(username.trim());
 
     if (!user) {
-      return res.status(404).json({ success: false, message: '用户不存在，请先注册' });
+      return res.status(404).json({ success: false, message: '用户不存在,请先注册' });
     }
 
     await db.updateLoginTime(user.id);
@@ -279,30 +279,30 @@ app.post('/api/equipment/enhance', async (req, res) => {
     }
 
     const equipment = validation.equipment;
-    
+
     // 计算金币消耗
     const cost = GameLogic.calculateEnhanceCost(equipment.level);
-    
+
     // 检查金币是否足够
     const userGold = user.gold || 0;
     if (userGold < cost) {
       return res.json({
         success: false,
         broken: false,
-        message: `金币不足，需要 ${cost} 金币`,
+        message: `金币不足,需要 ${cost} 金币`,
         cost
       });
     }
 
-    // 执行强化（服务端计算）
+    // 执行强化(服务端计算)
     const result = GameLogic.enhanceEquipment(equipment, userGold);
 
     if (result.broken) {
-      // 装备损坏，扣除金币
+      // 装备损坏,扣除金币
       await db.deleteEquipment(equipmentId);
       await db.updateUser(userId, { gold: userGold - cost });
       await invalidateUserCache(userId);
-      console.log(`[强化] 用户 ${user.username} 装备损坏 ${equipmentId}，消耗 ${cost} 金币`);
+      console.log(`[强化] 用户 ${user.username} 装备损坏 ${equipmentId},消耗 ${cost} 金币`);
       return res.json({
         success: true,
         broken: true,
@@ -313,7 +313,7 @@ app.post('/api/equipment/enhance', async (req, res) => {
     }
 
     if (result.success) {
-      // 强化成功，扣除金币
+      // 强化成功,扣除金币
       await db.updateEquipment(equipmentId, {
         level: result.newItem.level,
         main_affix_stat: result.newItem.mainAffix.stat,
@@ -322,7 +322,7 @@ app.post('/api/equipment/enhance', async (req, res) => {
       });
       await db.updateUser(userId, { gold: userGold - cost });
       await invalidateUserCache(userId);
-      console.log(`[强化] 用户 ${user.username} 装备强化成功 +${result.newItem.level}，消耗 ${cost} 金币`);
+      console.log(`[强化] 用户 ${user.username} 装备强化成功 +${result.newItem.level},消耗 ${cost} 金币`);
     }
 
     res.json({
@@ -370,7 +370,7 @@ app.post('/api/equipment/equip', async (req, res) => {
     if (user.level < equipLevel) {
       return res.json({
         success: false,
-        message: `等级不足，需要 ${equipLevel} 级才能穿戴此装备`
+        message: `等级不足,需要 ${equipLevel} 级才能穿戴此装备`
       });
     }
 
@@ -504,6 +504,7 @@ app.post('/api/battle/start', async (req, res) => {
     battle.monsterCellX = monsterCellX;
     battle.monsterCellY = monsterCellY;
     battle.playerStats = playerStats;
+    battle.originalPlayerHp = user.current_hp; // 保存战斗前的血量
 
     console.log(`[战斗调试] playerStats:`, JSON.stringify(playerStats));
     console.log(`[战斗调试] monsterDef:`, battle.monsterDef, 'monsterAtk:', battle.monsterAtk);
@@ -559,7 +560,7 @@ app.post('/api/battle/attack', async (req, res) => {
     const result = GameLogic.executeBattleRound(battle, skillId);
     await cache.set(`battle:${battleId}`, battle, 1800);
 
-    // 如果战斗胜利，预计算奖励信息
+    // 如果战斗胜利,预计算奖励信息
     let dropInfo = null;
     if (result.victory) {
       const rewards = GameLogic.calculateBattleRewards(battle.monsterType, battle.monsterLevel);
@@ -568,7 +569,7 @@ app.post('/api/battle/attack', async (req, res) => {
         exp: rewards.exp,
         items: rewards.items
       };
-      // 将奖励信息存入 battle 缓存，以便 endBattle 时使用
+      // 将奖励信息存入 battle 缓存,以便 endBattle 时使用
       battle.rewards = rewards;
       await cache.set(`battle:${battleId}`, battle, 1800);
     }
@@ -653,7 +654,7 @@ app.post('/api/battle/end', async (req, res) => {
     let responseData = { victory };
 
     if (victory) {
-      // 使用缓存的奖励信息（如果有），否则重新计算
+      // 使用缓存的奖励信息(如果有),否则重新计算
       const rewards = battle.rewards || GameLogic.calculateBattleRewards(battle.monsterType, battle.monsterLevel);
       const levelResult = GameLogic.processLevelUp(user.level, user.exp, rewards.exp);
 
@@ -696,16 +697,17 @@ app.post('/api/battle/end', async (req, res) => {
 
       console.log(`[战斗] 用户 ${user.username} 胜利 获得 ${rewards.exp}经验 ${rewards.gold}金币 ${rewards.items.length}装备`);
     } else {
-      const halfHp = Math.floor(battle.playerMaxHp / 2);
-      await db.updateUser(user.id, { current_hp: halfHp });
+      // 战斗失败,恢复到战斗前的血量
+      const originalHp = battle.originalPlayerHp || battle.playerMaxHp;
+      await db.updateUser(user.id, { current_hp: originalHp });
       await invalidateUserCache(user.id);
 
       responseData = {
         victory: false,
-        userData: { currentHp: halfHp }
+        userData: { currentHp: originalHp }
       };
 
-      console.log(`[战斗] 用户 ${user.username} 战斗失败`);
+      console.log(`[战斗] 用户 ${user.username} 战斗失败,恢复血量到 ${originalHp}`);
     }
 
     await cache.del(`battle:${battleId}`);
@@ -773,7 +775,7 @@ app.get('/api/worldmap/:userId', async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
     const state = await db.getGameState(userId);
-    
+
     if (state) {
       res.json({ success: true, data: state.mapData });
     } else {
@@ -785,7 +787,7 @@ app.get('/api/worldmap/:userId', async (req, res) => {
   }
 });
 
-// 保存玩家位置（防抖动设计，轻量级API）
+// 保存玩家位置(防抖动设计,轻量级API)
 app.post('/api/worldmap/position', async (req, res) => {
   try {
     const { userId, cellX, cellY } = req.body;
@@ -819,7 +821,7 @@ app.get('/api/worldmap/position/:userId', async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
     const state = await db.getGameState(userId);
-    
+
     if (state) {
       res.json({ success: true, data: { cellX: state.lastX, cellY: state.lastY } });
     } else {
@@ -831,7 +833,7 @@ app.get('/api/worldmap/position/:userId', async (req, res) => {
   }
 });
 
-// 更新怪物击败状态（轻量级更新）
+// 更新怪物击败状态(轻量级更新)
 app.post('/api/worldmap/entity', async (req, res) => {
   try {
     const { userId, cellX, cellY, defeated } = req.body;
@@ -845,14 +847,118 @@ app.post('/api/worldmap/entity', async (req, res) => {
       return res.status(404).json({ success: false, message: '地图数据不存在' });
     }
 
-    // 更新指定格子的怪物状态
+    const user = await validateUser(userId);
     const cells = state.mapData.cells;
-    if (cells[cellY] && cells[cellY][cellX]) {
-      if (cells[cellY][cellX].entity) {
+    let isFinalBossDefeated = false;
+    let allMiniBossesDefeated = false;
+    let finalBossSpawned = false;
+
+    if (cells[cellY] && cells[cellY][cellX] && cells[cellY][cellX].entity) {
+      const entity = cells[cellY][cellX].entity;
+      const entitySize = entity.size || 1;
+
+      // 标记所有格子为已击败
+      if (entitySize > 1) {
+        // 从entity id中提取起始坐标
+        const idParts = entity.id.split('_');
+        let startX, startY;
+
+        if (entity.isMiniBoss) {
+          // 小Boss格式: miniboss_${index}_${x}_${y}
+          startX = parseInt(idParts[2]);
+          startY = parseInt(idParts[3]);
+        } else if (entity.isFinalBoss) {
+          // 最终Boss格式: finalboss_${x}_${y}_${name}
+          startX = parseInt(idParts[1]);
+          startY = parseInt(idParts[2]);
+        } else {
+          // 普通怪物格式: ${type}_${x}_${y}_${timestamp}_${random}
+          startX = parseInt(idParts[1]);
+          startY = parseInt(idParts[2]);
+        }
+
+        for (let dy = 0; dy < entitySize; dy++) {
+          for (let dx = 0; dx < entitySize; dx++) {
+            const nx = startX + dx;
+            const ny = startY + dy;
+            if (cells[ny]?.[nx]?.entity?.id === entity.id) {
+              cells[ny][nx].entity.defeated = defeated;
+              cells[ny][nx].walkable = true; // 击败后可以通行
+            }
+          }
+        }
+      } else {
         cells[cellY][cellX].entity.defeated = defeated;
+        cells[cellY][cellX].walkable = true;
       }
-      // 保存更新后的地图数据
+
+      // 检查是否击败了最终Boss
+      if (entity.isFinalBoss && defeated) {
+        isFinalBossDefeated = true;
+        state.mapData.finalBossDefeated = true;
+      }
+
+      // 检查是否击败了小Boss
+      if (entity.isMiniBoss && defeated) {
+        state.mapData.miniBossesDefeated = (state.mapData.miniBossesDefeated || 0) + 1;
+        console.log(`[小Boss击败] 用户 ${user?.username} 击败了 ${entity.name} (${state.mapData.miniBossesDefeated}/${state.mapData.totalMiniBosses})`);
+
+        // 检查是否所有小Boss都被击败
+        if (state.mapData.miniBossesDefeated >= state.mapData.totalMiniBosses && !state.mapData.finalBossSpawned) {
+          allMiniBossesDefeated = true;
+
+          // 召唤最终Boss
+          const { spawnFinalBoss } = require('./mapGenerator');
+          const finalBoss = state.mapData.finalBoss;
+          const spawnX = state.mapData.finalBossSpawnX;
+          const spawnY = state.mapData.finalBossSpawnY;
+
+          spawnFinalBoss(cells, finalBoss, spawnX, spawnY);
+          state.mapData.finalBossSpawned = true;
+          finalBossSpawned = true;
+
+          console.log(`[最终Boss召唤] ${finalBoss.name} 已在地图中心召唤!`);
+        }
+      }
+
       await db.saveGameState(userId, state.mapData, state.mapData.player?.cellX || 0, state.mapData.player?.cellY || 0);
+
+      // 如果击败了最终Boss,返回通关信息
+      if (isFinalBossDefeated) {
+        const { getMapConfig } = require('./mapConfig');
+        const currentMap = getMapConfig(state.mapData.mapId || 1);
+        const nextMap = getMapConfig((state.mapData.mapId || 1) + 1);
+
+        console.log(`[地图通关] 用户 ${user?.username} 通关了 ${currentMap.name}!`);
+
+        return res.json({
+          success: true,
+          message: `恭喜通关 ${currentMap.name}!`,
+          mapCleared: true,
+          nextMap: nextMap ? {
+            id: nextMap.id,
+            name: nextMap.name,
+            levelRange: nextMap.levelRange,
+          } : null,
+          isLastMap: !nextMap || nextMap.id === currentMap.id,
+        });
+      }
+
+      // 如果最终Boss被召唤,返回召唤信息
+      if (finalBossSpawned) {
+        return res.json({
+          success: true,
+          message: `${state.mapData.finalBoss.name} 已在地图中心召唤!`,
+          finalBossSpawned: true,
+          finalBoss: {
+            name: state.mapData.finalBoss.name,
+            level: state.mapData.finalBoss.level,
+            x: state.mapData.finalBossSpawnX,
+            y: state.mapData.finalBossSpawnY,
+          },
+        });
+      }
+
       res.json({ success: true, message: '怪物状态已更新' });
     } else {
       res.status(404).json({ success: false, message: '格子不存在' });
@@ -863,23 +969,41 @@ app.post('/api/worldmap/entity', async (req, res) => {
   }
 });
 
-// 生成新地图（后端生成）
+// 生成新地图(后端生成)
 app.post('/api/worldmap/generate', async (req, res) => {
   try {
-    const { userId, level } = req.body;
+    const { userId, level, mapId } = req.body;
 
     if (!userId) {
       return res.status(400).json({ success: false, message: '缺少用户ID' });
     }
 
-    const playerLevel = level || 1;
+    const user = await validateUser(userId);
+    const playerLevel = level || user?.level || 1;
+
+    // 根据玩家等级确定地图ID(如果没有指定)
+    const { getCurrentMap, getMapConfig } = require('./mapConfig');
+    const targetMapId = mapId || getCurrentMap(playerLevel).id;
+
     const { generateMap } = require('./mapGenerator');
-    const gameMap = generateMap(playerLevel);
+    const gameMap = generateMap(targetMapId, playerLevel);
 
     // 保存新地图
     await db.saveGameState(userId, gameMap, gameMap.player.cellX, gameMap.player.cellY);
 
-    res.json({ success: true, data: gameMap, message: '新地图已生成' });
+    const mapConfig = getMapConfig(targetMapId);
+    console.log(`[地图生成] 用户 ${user?.username || userId} 进入地图 ${mapConfig.name} (等级${mapConfig.levelRange[0]}-${mapConfig.levelRange[1]})`);
+
+    res.json({
+      success: true,
+      data: gameMap,
+      mapInfo: {
+        id: mapConfig.id,
+        name: mapConfig.name,
+        levelRange: mapConfig.levelRange,
+      },
+      message: `进入 ${mapConfig.name}`
+    });
   } catch (error) {
     console.error('[地图生成错误]', error);
     res.status(500).json({ success: false, message: '服务器错误' });
@@ -889,11 +1013,11 @@ app.post('/api/worldmap/generate', async (req, res) => {
 // ==================== 兼容旧 API ====================
 
 app.post('/api/save', async (req, res) => {
-  res.json({ success: true, message: '数据自动保存，无需手动保存' });
+  res.json({ success: true, message: '数据自动保存,无需手动保存' });
 });
 
 app.post('/api/equipments/save', (req, res) => {
-  res.status(403).json({ success: false, message: '此接口已禁用，请使用游戏API' });
+  res.status(403).json({ success: false, message: '此接口已禁用,请使用游戏API' });
 });
 
 // ==================== 健康检查 ====================
@@ -902,10 +1026,10 @@ app.get('/health', async (req, res) => {
   try {
     // 检查数据库连接
     const dbHealthy = db.healthCheck ? await db.healthCheck() : true;
-    
+
     // 检查Redis连接
     const cacheHealthy = await cache.ping();
-    
+
     res.json({
       status: dbHealthy && cacheHealthy ? 'healthy' : 'degraded',
       database: dbHealthy ? 'connected' : 'disconnected',

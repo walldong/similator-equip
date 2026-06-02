@@ -110,16 +110,17 @@ function createDatabase(config) {
           const row = rows[0];
           if (!row) return null;
           // 确保字段名一致（MySQL 可能返回小写字段名）
+          // 注意：使用 ?? 而不是 ||，因为 0 是有效值
           return {
-            id: row.id || row.ID,
-            username: row.username || row.USERNAME,
-            uuid: row.uuid || row.UUID,
-            level: row.level || row.LEVEL,
-            exp: row.exp || row.EXP,
-            gold: row.gold || row.GOLD,
-            current_hp: row.current_hp || row.CURRENT_HP,
-            created_at: row.created_at || row.CREATED_AT,
-            last_login: row.last_login || row.LAST_LOGIN
+            id: row.id ?? row.ID,
+            username: row.username ?? row.USERNAME,
+            uuid: row.uuid ?? row.UUID,
+            level: row.level ?? row.LEVEL ?? 1,
+            exp: row.exp ?? row.EXP ?? 0,
+            gold: row.gold ?? row.GOLD ?? 0,
+            current_hp: row.current_hp ?? row.CURRENT_HP ?? 200,
+            created_at: row.created_at ?? row.CREATED_AT,
+            last_login: row.last_login ?? row.LAST_LOGIN
           };
         });
     },
@@ -129,16 +130,17 @@ function createDatabase(config) {
         .then(([rows]) => {
           const row = rows[0];
           if (!row) return null;
+          // 使用 ?? 而不是 ||，因为 0 是有效值
           return {
-            id: row.id || row.ID,
-            username: row.username || row.USERNAME,
-            uuid: row.uuid || row.UUID,
-            level: row.level || row.LEVEL,
-            exp: row.exp || row.EXP,
-            gold: row.gold || row.GOLD,
-            current_hp: row.current_hp || row.CURRENT_HP,
-            created_at: row.created_at || row.CREATED_AT,
-            last_login: row.last_login || row.LAST_LOGIN
+            id: row.id ?? row.ID,
+            username: row.username ?? row.USERNAME,
+            uuid: row.uuid ?? row.UUID,
+            level: row.level ?? row.LEVEL ?? 1,
+            exp: row.exp ?? row.EXP ?? 0,
+            gold: row.gold ?? row.GOLD ?? 0,
+            current_hp: row.current_hp ?? row.CURRENT_HP ?? 200,
+            created_at: row.created_at ?? row.CREATED_AT,
+            last_login: row.last_login ?? row.LAST_LOGIN
           };
         });
     },

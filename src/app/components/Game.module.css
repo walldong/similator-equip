@@ -382,7 +382,6 @@
   padding: 2px 6px;
   border-radius: 4px;
   margin-left: 8px;
-}
   font-size: 11px;
   font-weight: bold;
   margin-bottom: 2px;
@@ -725,6 +724,14 @@
 
 .worldMapContainer {
   display: flex;
+  flex-direction: row;
+  gap: 16px;
+  height: 100%;
+}
+
+.mapMain {
+  flex: 1;
+  display: flex;
   flex-direction: column;
   gap: 16px;
 }
@@ -790,6 +797,7 @@
 }
 
 .miniMapCell {
+  position: relative;
   width: 20px;
   height: 20px;
   border-radius: 2px;
@@ -799,10 +807,39 @@
   font-size: 10px;
   cursor: pointer;
   transition: transform 0.1s;
+  overflow: visible;
 }
 
 .miniMapCell:hover {
   transform: scale(1.1);
+}
+
+.entityIcon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
+  line-height: 1;
+}
+
+/* 2x2 实体图标 - 跨越2格 */
+.entity2x {
+  font-size: 28px;
+  transform: translate(-50%, -50%) translate(10px, 10px);
+}
+
+/* 3x3 实体图标 - 跨越3格 */
+.entity3x {
+  font-size: 44px;
+  transform: translate(-50%, -50%) translate(20px, 20px);
+}
+
+/* 4x4 实体图标 - 跨越4格 */
+.entity4x {
+  font-size: 60px;
+  transform: translate(-50%, -50%) translate(30px, 30px);
 }
 
 .playerCell {
@@ -1129,4 +1166,37 @@
 .dropItem {
   font-size: 16px;
   color: #ffd700;
+}
+
+.mapProgress {
+  font-size: 14px;
+  color: #4fc3f7;
+  font-weight: bold;
+  padding: 4px 12px;
+  background: rgba(79, 195, 247, 0.2);
+  border-radius: 6px;
+}
+
+.miniBossProgress {
+  font-size: 12px;
+  color: #ffd700;
+  padding: 4px 8px;
+  background: rgba(255, 215, 0, 0.1);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.miniMapSidebar {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.miniMapOverviewFixed {
+  border: 1px solid #333;
+  padding: 4px;
+  border-radius: 6px;
 }

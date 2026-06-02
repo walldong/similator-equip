@@ -4,6 +4,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { EquipmentSlot, Quality } from '@/types';
+import type { MapCell } from '@/types/map';
 
 // API 基础地址
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -390,7 +391,7 @@ export default function useGame() {
       });
 
       if (data.broken) {
-        // 装备损坏，从列表移除，扣除金币
+        // 装备损坏,从列表移除,扣除金币
         setState((prev) => ({
           ...prev,
           gold: data.gold ?? prev.gold,
@@ -400,9 +401,9 @@ export default function useGame() {
             [item.slot]: prev.equippedItems[item.slot]?.id === item.id ? null : prev.equippedItems[item.slot],
           },
         }));
-        addLog(data.message + `（消耗 ${data.cost} 金币）`, 'fail');
+        addLog(data.message + `(消耗 ${data.cost} 金币)`, 'fail');
       } else if (data.success) {
-        // 强化成功，更新装备和金币
+        // 强化成功,更新装备和金币
         setState((prev) => ({
           ...prev,
           gold: data.gold ?? prev.gold,
@@ -419,7 +420,7 @@ export default function useGame() {
                 : prev.equippedItems[item.slot],
           },
         }));
-        addLog(data.message + `（消耗 ${data.cost} 金币）`, 'success');
+        addLog(data.message + `(消耗 ${data.cost} 金币)`, 'success');
       } else {
         addLog(data.message, 'warning');
       }
@@ -482,19 +483,21 @@ export default function useGame() {
 
   // 更新怪物击败状态(轻量级)
   const updateEntityDefeated = useCallback(async (cellX: number, cellY: number, defeated: boolean) => {
-    if (!state.userId) return;
+    if (!state.userId) return null;
 
     try {
-      await apiCall('/worldmap/entity', {
+      const data = await apiCall('/worldmap/entity', {
         method: 'POST',
         body: JSON.stringify({ userId: state.userId, cellX, cellY, defeated }),
       });
+      return data;
     } catch (error) {
       console.error('更新怪物状态失败:', error);
+      return null;
     }
   }, [state.userId]);
 
-  // 加载或生成地图(登录时调用)
+  // 加载或生成地图（登录时调用）
   const generateWorldMap = useCallback(async (userId?: number, level?: number) => {
     const effectiveUserId = userId || state.userId;
     const effectiveLevel = level || state.level;
@@ -511,7 +514,7 @@ export default function useGame() {
       });
       if (data.success && data.data) {
         gameMap = data.data;
-        addLog('🗺️ 新世界地图已生成', 'success');
+        addLog(`🗺️ 进入 ${data.mapInfo?.name || '新地图'}`, 'success');
       }
     } else {
       addLog('🗺️ 地图数据已加载', 'success');
@@ -520,21 +523,23 @@ export default function useGame() {
     setState((prev) => ({ ...prev, gameMap }));
   }, [state.level, state.userId, loadWorldMap, addLog]);
 
-  // 重置世界地图（手动触发，后端生成）
-  const resetWorldMap = useCallback(async () => {
+  // 进入下一张地图（通关后调用）
+  const enterNextMap = useCallback(async () => {
     if (!state.userId) return;
 
-    // 请求后端生成新地图
+    const currentMapId = state.gameMap?.mapId || 1;
+    const nextMapId = currentMapId + 1;
+
     const data = await apiCall('/worldmap/generate', {
       method: 'POST',
-      body: JSON.stringify({ userId: state.userId, level: state.level }),
+      body: JSON.stringify({ userId: state.userId, level: state.level, mapId: nextMapId }),
     });
 
     if (data.success && data.data) {
       setState((prev) => ({ ...prev, gameMap: data.data }));
-      addLog('🔄 地图已重置', 'success');
+      addLog(`🎉 进入新地图: ${data.mapInfo?.name}`, 'success');
     }
-  }, [state.level, state.userId, addLog]);
+  }, [state.userId, state.level, state.gameMap?.mapId, addLog]);
 
   // 防抖动保存位置(轻量级)
   const savePositionDebounced = useCallback((cellX: number, cellY: number) => {
@@ -788,28 +793,71 @@ export default function useGame() {
         const result = data.data;
 
         if (result.victory) {
-          // 更新怪物击败状态（轻量级 API）
-          updateEntityDefeated(result.monsterCellX, result.monsterCellY, true);
+          // 更新怪物击败状态(轻量级 API)
+          const entityData = await updateEntityDefeated(result.monsterCellX, result.monsterCellY, true);
           // 保存玩家位置
           savePosition(result.monsterCellX, result.monsterCellY);
+
+          // 检查是否通关了地图
+          if (entityData?.mapCleared) {
+            addLog(`🎉 通关了地图！`, 'success');
+            if (entityData?.nextMap && !entityData?.isLastMap) {
+              addLog(`可以进入下一张地图: ${entityData.nextMap.name}`, 'info');
+              // 自动进入下一张地图
+              setTimeout(() => enterNextMap(), 2000);
+            } else {
+              addLog('🏆 你已完成所有地图！', 'success');
+            }
+          }
+          
+          // 检查是否召唤了最终Boss
+          if (entityData?.finalBossSpawned) {
+            addLog(`🔥 ${entityData.finalBoss?.name} 已在地图中心召唤！`, 'warning');
+          }
 
           // 更新玩家数据
           setState((prev) => {
             if (!prev.gameMap) return { ...prev, battle: null };
 
-            // 标记怪物为已击败
-            const updatedCells = prev.gameMap.cells.map((row) =>
-              row.map((c) => {
-                if (c.x === result.monsterCellX && c.y === result.monsterCellY && c.entity) {
-                  return { ...c, entity: { ...c.entity, defeated: true } };
+            // 标记怪物为已击败（处理多格子实体）
+            const defeatedEntity = prev.gameMap.cells[result.monsterCellY]?.[result.monsterCellX]?.entity;
+            const entitySize = defeatedEntity?.size || 1;
+            const idParts = defeatedEntity?.id?.split('_') || [];
+            
+            // 根据实体类型解析起始坐标
+            let startX: number, startY: number;
+            if (defeatedEntity?.isMiniBoss) {
+              // 小Boss格式: miniboss_${index}_${x}_${y}
+              startX = parseInt(idParts[2]) || result.monsterCellX;
+              startY = parseInt(idParts[3]) || result.monsterCellY;
+            } else if (defeatedEntity?.isFinalBoss) {
+              // 最终Boss格式: finalboss_${x}_${y}_${name}
+              startX = parseInt(idParts[1]) || result.monsterCellX;
+              startY = parseInt(idParts[2]) || result.monsterCellY;
+            } else {
+              // 普通怪物格式: ${type}_${x}_${y}_${timestamp}_${random}
+              startX = parseInt(idParts[1]) || result.monsterCellX;
+              startY = parseInt(idParts[2]) || result.monsterCellY;
+            }
+            
+            const updatedCells = prev.gameMap.cells.map((row, rowIdx) =>
+              row.map((c, colIdx): MapCell => {
+                // 检查是否在实体范围内
+                const dx = colIdx - startX;
+                const dy = rowIdx - startY;
+                if (dx >= 0 && dx < entitySize && dy >= 0 && dy < entitySize && 
+                    c.entity?.id === defeatedEntity?.id) {
+                  return { ...c, entity: { ...c.entity!, defeated: true }, walkable: true };
                 }
                 return c;
               })
             );
 
-            // 更新统计
+            // 更新统计和小Boss进度
             const stats = prev.gameMap.stats;
             const monsterType = prev.battle?.monsterType;
+            const isMiniBoss = defeatedEntity?.isMiniBoss;
+            const newMiniBossesDefeated = isMiniBoss ? (prev.gameMap.miniBossesDefeated || 0) + 1 : (prev.gameMap.miniBossesDefeated || 0);
             const newStats = {
               ...stats,
               monsters: {
@@ -823,6 +871,10 @@ export default function useGame() {
               bosses: {
                 ...stats.bosses,
                 defeated: monsterType === 'boss' ? stats.bosses.defeated + 1 : stats.bosses.defeated,
+              },
+              miniBosses: {
+                total: prev.gameMap.totalMiniBosses || 0,
+                defeated: newMiniBossesDefeated,
               },
             };
 
@@ -841,7 +893,16 @@ export default function useGame() {
                 ...prev.gameMap,
                 cells: updatedCells,
                 stats: newStats,
-                player: {
+                miniBossesDefeated: newMiniBossesDefeated,
+                finalBossSpawned: entityData?.finalBossSpawned || prev.gameMap.finalBossSpawned,
+                player: entityData?.finalBossSpawned ? {
+                  ...prev.gameMap.player,
+                  // 传送到最终Boss左侧的安全位置
+                  cellX: Math.max(5, (entityData.finalBoss?.x || Math.floor(prev.gameMap.width / 2)) - 6),
+                  cellY: entityData.finalBoss?.y || Math.floor(prev.gameMap.height / 2),
+                  x: Math.max(5, (entityData.finalBoss?.x || Math.floor(prev.gameMap.width / 2)) - 6) * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
+                  y: (entityData.finalBoss?.y || Math.floor(prev.gameMap.height / 2)) * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
+                } : {
                   ...prev.gameMap.player,
                   cellX: result.monsterCellX,
                   cellY: result.monsterCellY,
@@ -861,15 +922,16 @@ export default function useGame() {
 
           addLog(`获得 ${result.rewards.gold} 金币, ${result.rewards.exp} 经验, ${result.rewards.items.length} 件装备`, 'success');
         } else {
-          // 战斗失败，回到中心点
+          // 战斗失败,回到安全位置（地图左上角区域）
           setState((prev) => {
             if (!prev.gameMap) return { ...prev, battle: null };
 
-            const centerX = Math.floor(prev.gameMap.width / 2);
-            const centerY = Math.floor(prev.gameMap.height / 2);
+            // 找到一个安全的出生点（地图左上角，远离Boss）
+            const safeX = 10;
+            const safeY = 10;
 
-            // 保存玩家位置（回到中心点）
-            savePosition(centerX, centerY);
+            // 保存玩家位置
+            savePosition(safeX, safeY);
 
             return {
               ...prev,
@@ -879,23 +941,23 @@ export default function useGame() {
                 ...prev.gameMap,
                 player: {
                   ...prev.gameMap.player,
-                  cellX: centerX,
-                  cellY: centerY,
-                  x: centerX * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
-                  y: centerY * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
+                  cellX: safeX,
+                  cellY: safeY,
+                  x: safeX * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
+                  y: safeY * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
                 },
               },
             };
           });
 
-          addLog('💀 战斗失败，已回到出生点', 'fail');
+          addLog(`💀 战斗失败，血量恢复到 ${result.userData.currentHp}`, 'fail');
         }
       }
     } catch (error) {
       addLog('结束战斗失败', 'fail');
       setState((prev) => ({ ...prev, battle: null }));
     }
-  }, [state.battle, addLog, updateEntityDefeated, savePosition]);
+  }, [state.battle, addLog, updateEntityDefeated, savePosition, enterNextMap]);
 
   // 退出登录
   const logout = useCallback(() => {
@@ -937,7 +999,7 @@ export default function useGame() {
     deleteItem,
     addLog,
     generateWorldMap,
-    resetWorldMap,
+    enterNextMap,
     movePlayer,
     updatePlayerPosition,
     startBattle,

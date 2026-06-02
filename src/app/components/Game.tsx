@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import useGame, { EquipmentItem, LogEntry, BattleState, SkillData } from '@/lib/useGame';
 import { EquipmentSlot, Quality } from '@/types';
-import { MapCell } from '@/types/map';
+import { MapCell, GameMap } from '@/types/map';
 import styles from './Game.module.css';
 import PixiMap from './PixiMap';
 import pixiStyles from './PixiMap.module.css';
@@ -65,6 +65,15 @@ const StatNames: Record<string, string> = {
   ARMOR: '护甲',
 };
 
+const MAP_NAMES: Record<number, string> = {
+  1: '新手草原',
+  2: '幽暗森林',
+  3: '灼热沙漠',
+  4: '冰霜高原',
+  5: '熔岩地带',
+  6: '暗影深渊',
+};
+
 export default function Game() {
   const {
     state,
@@ -77,7 +86,6 @@ export default function Game() {
     enhanceItem,
     deleteItem,
     generateWorldMap,
-    resetWorldMap,
     movePlayer,
     updatePlayerPosition,
     startBattle,
@@ -336,7 +344,7 @@ export default function Game() {
                 <div className={styles.avatarIcon}>🧙‍♂️</div>
                 <div className={styles.characterName}>Lv.{state.level}</div>
                 <div className={styles.expBar}>
-                  <div className={styles.expFill} style={{ width: `${(state.exp / (state.level * 100)) * 100}%` }}></div>
+                  <div className={styles.expFill} style={{ width: `${Math.min(100, (state.exp / (state.level * 100)) * 100)}%` }}></div>
                   <span>{state.exp}/{state.level * 100}</span>
                 </div>
               </div>
@@ -503,23 +511,23 @@ export default function Game() {
           <div className={styles.adventureContent}>
             {!state.gameMap ? (
               <section className={styles.adventureSelect}>
-                <h2>🗺️ 世界地图</h2>
-                <p className={styles.adventureHint}>探索200×200的世界地图，击败怪物获取装备</p>
+                <h2>🗺️ 冒险地图</h2>
+                <p className={styles.adventureHint}>探索6个不同的地图，击败Boss获取装备</p>
                 <div className={styles.adventureInfo}>
                   <div className={styles.infoItem}>
                     <span className={styles.infoIcon}>⚔️</span>
-                    <span>怪物等级随区域递增</span>
+                    <span>击败小Boss和最终Boss</span>
                   </div>
                   <div className={styles.infoItem}>
                     <span className={styles.infoIcon}>🎁</span>
-                    <span>击败怪物掉落装备</span>
+                    <span>通关后自动进入下一张地图</span>
                   </div>
                 </div>
                 <button
                   className={`${styles.btn} ${styles.btnPrimary} ${styles.btnLarge}`}
                   onClick={() => generateWorldMap()}
                 >
-                  🗺️ 进入世界地图
+                  🗺️ 开始冒险
                 </button>
               </section>
             ) : state.battle?.isActive ? (
@@ -529,21 +537,34 @@ export default function Game() {
                 playerAttack={playerAttack}
                 useSkill={useSkill}
                 endBattle={endBattle}
-                playerHp={state.currentHp}
-                playerMaxHp={state.maxHp}
+                playerHp={state.battle?.playerHp ?? state.currentHp}
+                playerMaxHp={state.battle?.playerMaxHp ?? state.maxHp}
               />
             ) : (
               <div className={styles.worldMapContainer}>
-                <section className={styles.mapHeader}>
-                  <h2>🗺️ 世界地图 <span className={styles.mapSize}>({state.gameMap.width}×{state.gameMap.height})</span></h2>
+                {/* 左侧小地图导航 */}
+                <section className={styles.miniMapSidebar}>
+                  <div className={styles.miniMapOverviewFixed}>
+                    <MiniMapOverview map={state.gameMap} />
+                  </div>
+                  <div className={styles.miniBossProgress}>
+                    小Boss: {state.gameMap.miniBossesDefeated || 0}/{state.gameMap.totalMiniBosses || 0}
+                    {state.gameMap.finalBossSpawned && <span style={{ color: '#ff4500' }}>🔥</span>}
+                  </div>
+                </section>
+                
+                {/* 右侧主地图 */}
+                <section className={styles.mapMain}>
+                  <section className={styles.mapHeader}>
+                  <h2>🗺️ {state.gameMap.mapName || MAP_NAMES[state.gameMap.mapId || 1] || '世界地图'} <span className={styles.mapSize}>({state.gameMap.width}×{state.gameMap.height})</span></h2>
                   <div className={styles.mapStats}>
                     <span>👹 普通: {state.gameMap.stats.monsters.defeated}/{state.gameMap.stats.monsters.total}</span>
                     <span>💀 精英: {state.gameMap.stats.elites.defeated}/{state.gameMap.stats.elites.total}</span>
                     <span>🐉 Boss: {state.gameMap.stats.bosses.defeated}/{state.gameMap.stats.bosses.total}</span>
                   </div>
-                  <button className={`${styles.btn} ${styles.btnWarning}`} onClick={resetWorldMap}>
-                    🔄 重置地图
-                  </button>
+                  <div className={styles.mapProgress}>
+                    等级 {state.gameMap.zones?.[0]?.monsterLevel?.[0] || 1}-{state.gameMap.zones?.[state.gameMap.zones.length - 1]?.monsterLevel?.[1] || 10}
+                  </div>
                 </section>
                 <section className={styles.mapView}>
                   <div className={pixiStyles.pixiMapContainer}>
@@ -558,6 +579,7 @@ export default function Game() {
                   <div className={styles.mapInfo}>
                     <p>📍 位置: ({state.gameMap.player.cellX}, {state.gameMap.player.cellY})</p>
                   </div>
+                </section>
                 </section>
               </div>
             )}
@@ -670,8 +692,9 @@ function BattleView({ battle, playerAttack, useSkill, endBattle, playerHp, playe
         {isVictory ? (
           <div className={styles.victoryContent}>
             <div className={styles.dropPreview}>
+              <div className={styles.dropItem}>⭐ 经验: +{dropInfo?.exp}</div>
               <div className={styles.dropItem}>💰 金币: +{dropInfo?.gold}</div>
-              <div className={styles.dropItem}>🎁 装备: +{dropInfo?.items.length}件</div>
+              <div className={styles.dropItem}>🎁 装备: +{dropInfo?.items?.length || 0}件</div>
             </div>
             <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => endBattle(true)}>
               🎉 拾取并返回地图
@@ -703,6 +726,84 @@ function BattleView({ battle, playerAttack, useSkill, endBattle, playerHp, playe
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// 小地图导航组件
+function MiniMapOverview({ map }: { map: GameMap }) {
+  const scale = 2;
+  const width = map.width * scale;
+  const height = map.height * scale;
+  
+  const bossPositions: Array<{ x: number; y: number; name: string; type: 'miniBoss' | 'finalBoss' }> = [];
+  
+  for (let y = 0; y < map.cells.length; y++) {
+    for (let x = 0; x < map.cells[y].length; x++) {
+      const cell = map.cells[y][x];
+      if (cell.entity && !cell.entity.defeated) {
+        if (cell.entity.isMiniBoss) {
+          const idParts = cell.entity.id.split('_');
+          const startX = parseInt(idParts[2]);
+          const startY = parseInt(idParts[3]);
+          if (x === startX && y === startY) {
+            bossPositions.push({ x, y, name: cell.entity.name || '小Boss', type: 'miniBoss' });
+          }
+        } else if (cell.entity.isFinalBoss) {
+          const idParts = cell.entity.id.split('_');
+          const startX = parseInt(idParts[1]);
+          const startY = parseInt(idParts[2]);
+          if (x === startX && y === startY) {
+            bossPositions.push({ x, y, name: cell.entity.name || '最终Boss', type: 'finalBoss' });
+          }
+        }
+      }
+    }
+  }
+  
+  if (!map.finalBossSpawned && map.finalBossSpawnX && map.finalBossSpawnY) {
+    bossPositions.push({
+      x: map.finalBossSpawnX,
+      y: map.finalBossSpawnY,
+      name: map.finalBoss?.name || '最终Boss',
+      type: 'finalBoss',
+    });
+  }
+  
+  return (
+    <div style={{ width, height, background: '#1a1a2e', borderRadius: '4px', position: 'relative' }}>
+      <div
+        style={{
+          position: 'absolute',
+          left: map.player.cellX * scale - 3,
+          top: map.player.cellY * scale - 3,
+          width: 6,
+          height: 6,
+          background: '#4CAF50',
+          borderRadius: '50%',
+          border: '1px solid #fff',
+          zIndex: 20,
+        }}
+        title="玩家位置"
+      />
+      {bossPositions.map((boss, index) => (
+        <div
+          key={index}
+          style={{
+            position: 'absolute',
+            left: boss.x * scale - 4,
+            top: boss.y * scale - 4,
+            width: boss.type === 'finalBoss' ? 12 : 8,
+            height: boss.type === 'finalBoss' ? 12 : 8,
+            background: boss.type === 'finalBoss' ? '#ff0000' : '#ff4500',
+            borderRadius: '2px',
+            border: boss.type === 'finalBoss' ? '2px solid #ffd700' : '1px solid #fff',
+            zIndex: 10,
+            opacity: boss.type === 'finalBoss' && !map.finalBossSpawned ? 0.5 : 1,
+          }}
+          title={boss.name}
+        />
+      ))}
     </div>
   );
 }
