@@ -628,6 +628,28 @@ header h1 {
     font-size: 0.8rem;
 }
 
+.upgrade-stars {
+    color: #ffd700;
+    font-size: 0.75rem;
+    margin-left: 4px;
+}
+
+/* 物品详情组件 */
+.item-detail-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.item-icon-row {
+    display: flex;
+    justify-content: center;
+}
+
+.item-info {
+    text-align: center;
+}
+
 .action-buttons {
     display: flex;
     gap: 8px;
@@ -1117,6 +1139,29 @@ header h1 {
     z-index: 2000;
     pointer-events: none;
     box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* Tooltip中使用item-detail组件的样式调整 */
+.equip-tooltip-fixed .item-detail-content {
+    gap: 8px;
+}
+
+.equip-tooltip-fixed .item-info {
+    text-align: left;
+}
+
+.equip-tooltip-fixed .item-name {
+    font-size: 1rem;
+}
+
+.equip-tooltip-fixed .item-icon-row {
+    justify-content: flex-start;
+}
+
+.equip-tooltip-fixed .item-icon.large {
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
 }
 
 .tooltip-header {

@@ -212,6 +212,27 @@ const EquipmentMethods = {
         return stmt.run(id);
     },
 
+    // 获取单个装备
+    getById(id) {
+        const stmt = db.prepare('SELECT * FROM equipments WHERE id = ?');
+        const row = stmt.get(id);
+        if (!row) return null;
+        return {
+            id: row.id,
+            slot: row.slot,
+            level: row.level,
+            quality: row.quality,
+            isBroken: row.is_broken === 1,
+            equipped: row.equipped === 1,
+            mainAffix: {
+                stat: row.main_affix_stat,
+                value: row.main_affix_value
+            },
+            subAffixes: JSON.parse(row.sub_affixes || '[]'),
+            user_id: row.user_id
+        };
+    },
+
     // 删除用户所有装备
     deleteByUserId(userId) {
         const stmt = db.prepare('DELETE FROM equipments WHERE user_id = ?');

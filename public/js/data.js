@@ -496,16 +496,19 @@ function generateSubAffixes(slot, level, quality, existingStats = []) {
 /**
  * 升级随机副词条
  */
-function upgradeRandomSubAffix(subAffixes, minPercent = 20, maxPercent = 50) {
+function upgradeRandomSubAffix(subAffixes, minPercent = 20, maxPercent = 40) {
     if (!subAffixes || subAffixes.length === 0) return null;
     
     const index = Math.floor(Math.random() * subAffixes.length);
     const affix = subAffixes[index];
-    const percent = minPercent + Math.floor(Math.random() * (maxPercent - minPercent));
+    const percent = minPercent + Math.floor(Math.random() * (maxPercent - minPercent + 1));
     const increase = Math.ceil(affix.value * percent / 100);
     affix.value += increase;
     
-    return { index, stat: affix.stat, oldValue: affix.value - increase, newValue: affix.value };
+    // 添加升级次数标识（用星星表示）
+    affix.upgradeCount = (affix.upgradeCount || 0) + 1;
+    
+    return { index, stat: affix.stat, oldValue: affix.value - increase, newValue: affix.value, upgradeCount: affix.upgradeCount };
 }
 
 /**

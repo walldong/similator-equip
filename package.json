@@ -1,23 +1,42 @@
 {
   "name": "similator-equip",
-  "version": "3.0.0",
-  "description": "装备强化模拟器 - Vue 3 + SQLite",
-  "main": "backend/server.js",
+  "version": "4.0.0",
+  "description": "装备强化模拟器 - Next.js + TypeScript + ECS",
+  "private": true,
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "node backend/server.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "backend:install": "cd backend && npm install",
+    "backend:dev": "cd backend && npm run dev",
+    "backend:start": "cd backend && npm start"
   },
   "keywords": [
-    "vue",
-    "sqlite",
+    "next.js",
+    "typescript",
+    "ecs",
     "game",
     "rpg"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
+    "@pixi/react": "^8.0.5",
     "better-sqlite3": "^11.10.0",
-    "cors": "^2.8.5",
-    "express": "^5.2.1"
+    "next": "^15.3.0",
+    "pixi.js": "^8.18.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.0.0"
   }
 }

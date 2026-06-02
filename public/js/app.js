@@ -617,7 +617,6 @@ createApp({
                 addLog(`强化成功！+${item.level}`, 'success');
             } else if (roll < successRate + brokenRate) {
                 item.isBroken = true;
-                item.level = Math.max(0, item.level - 3);
                 addLog('💔 装备损坏！', 'fail');
                 
                 // 从背包或装备槽移除
@@ -633,7 +632,7 @@ createApp({
                 }
                 selectedItem.value = null;
             } else {
-                item.level = Math.max(0, item.level - 1);
+                // 强化失败，等级保持不变
                 addLog(`强化失败 +${item.level}`, 'warning');
             }
             autoSave();
@@ -1620,4 +1619,65 @@ createApp({
             QualityMultipliers
         };
     }
-}).mount('#app');
+});
+
+// 注册物品详情组件
+app.component('item-detail', {
+    props: {
+        item: { type: Object, default: null },
+        showActions: { type: Boolean, default: false }
+    },
+    emits: ['equip', 'enhance', 'synth', 'delete'],
+    methods: {
+        getStatName(stat) { return StatNames[stat] || stat; },
+        formatStatValue(stat, value) { return PercentStats.includes(stat) ? value + '%' : value; },
+        getFinalStatValue(value, quality) {
+            const safeValue = (typeof value === 'number' && !isNaN(value)) ? value : 0;
+            const mult = QualityMultipliers[quality] || 1;
+            return Math.max(0, Math.floor(safeValue * mult));
+        },
+        getQualityName(quality) { return QualityNames[quality] || quality; },
+        getSlotName(slot) { return SlotNames[slot] || slot; },
+        getSlotIcon(slot) { return SlotIcons[slot] || '❓'; },
+        getEnhanceClass(level) {
+            if (!level && level !== 0) return 'level-default';
+            if (level >= 20) return 'level-mythic';
+            if (level >= 16) return 'level-legendary';
+            if (level >= 11) return 'level-epic';
+            if (level >= 6) return 'level-rare';
+            return 'level-default';
+        }
+    },
+    template: `
+        <div v-if="item" class="item-detail-content">
+            <div class="item-icon-row">
+                <div :class="['item-icon', 'large', 'quality-' + item.quality]">
+                    {{ getSlotIcon(item.slot) }}
+                </div>
+            </div>
+            <div class="item-info">
+                <div :class="['item-name', 'quality-' + item.quality]">
+                    {{ getQualityName(item.quality) }} {{ getSlotName(item.slot) }}
+                </div>
+                <div class="item-stats">
+                    <span :class="['enhance-level', getEnhanceClass(item.level)]">+{{ item.level }}</span>
+                    <span v-if="item.isBroken" class="broken-text">已损坏</span>
+                </div>
+                <div v-if="item.mainAffix" class="item-main-stat">
+                    ★ {{ getStatName(item.mainAffix.stat) }}: +{{ formatStatValue(item.mainAffix.stat, getFinalStatValue(item.mainAffix.value, item.quality)) }}
+                </div>
+                <div v-for="(sub, i) in item.subAffixes" :key="i" class="item-sub-stat">
+                    ○ {{ getStatName(sub.stat) }}: +{{ formatStatValue(sub.stat, getFinalStatValue(sub.value, item.quality)) }}<span v-if="sub.upgradeCount" class="upgrade-stars">{{ '☆'.repeat(sub.upgradeCount) }}</span>
+                </div>
+            </div>
+            <div v-if="showActions" class="action-buttons">
+                <button @click="$emit('equip')" class="btn btn-primary" :disabled="item.isBroken">穿戴</button>
+                <button @click="$emit('enhance')" class="btn btn-enhance" :disabled="item.isBroken || item.level >= 21">强化</button>
+                <button @click="$emit('synth')" class="btn btn-synth" :disabled="item.isBroken">选择合成</button>
+                <button @click="$emit('delete')" class="btn btn-danger">丢弃</button>
+            </div>
+        </div>
+    `
+});
+
+app.mount('#app');

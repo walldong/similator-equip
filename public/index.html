@@ -163,33 +163,14 @@
                     <!-- 操作面板 -->
                     <section v-if="selectedItem" class="action-panel">
                         <h2>📋 装备操作</h2>
-                        <div class="selected-info">
-                            <div :class="['item-icon', 'large', 'quality-' + selectedItem.quality]" 
-                                 :style="{ borderColor: getQualityColor(selectedItem.quality) }">
-                                {{ getSlotIcon(selectedItem.slot) }}
-                            </div>
-                            <div class="item-details">
-                                <div :class="['item-name', 'quality-' + selectedItem.quality]">
-                                    {{ getQualityName(selectedItem.quality) }} {{ getSlotName(selectedItem.slot) }}
-                                </div>
-                                <div class="item-stats">
-                                    <span :class="['enhance-level', getEnhanceClass(selectedItem.level)]">+{{ selectedItem.level }}</span>
-                                    <span v-if="selectedItem.isBroken" class="broken-text">已损坏</span>
-                                </div>
-                                <div v-if="selectedItem.mainAffix" class="item-main-stat">
-                                    ★ {{ getStatName(selectedItem.mainAffix.stat) }}: +{{ formatStatValue(selectedItem.mainAffix.stat, getFinalStatValue(selectedItem.mainAffix.value, selectedItem.quality)) }}
-                                </div>
-                                <div v-for="(sub, i) in selectedItem.subAffixes" :key="i" class="item-sub-stat">
-                                    ○ {{ getStatName(sub.stat) }}: +{{ formatStatValue(sub.stat, getFinalStatValue(sub.value, selectedItem.quality)) }}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="action-buttons">
-                            <button @click="equipItem" class="btn btn-primary" :disabled="selectedItem.isBroken">穿戴</button>
-                            <button @click="enhanceItem" class="btn btn-enhance" :disabled="selectedItem.isBroken || selectedItem.level >= 21">强化</button>
-                            <button @click="startSynthesis" class="btn btn-synth" :disabled="selectedItem.isBroken">选择合成</button>
-                            <button @click="deleteItem" class="btn btn-danger">丢弃</button>
-                        </div>
+                        <item-detail 
+                            :item="selectedItem" 
+                            :show-actions="true"
+                            @equip="equipItem"
+                            @enhance="enhanceItem"
+                            @synth="startSynthesis"
+                            @delete="deleteItem"
+                        />
                     </section>
 
                     <!-- 合成面板 -->
@@ -373,29 +354,7 @@
 
                 <!-- Tooltip -->
                 <div v-if="tooltip.visible" class="equip-tooltip-fixed" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
-                    <div class="tooltip-header">
-                        <span class="tooltip-icon">{{ getSlotIcon(tooltip.item?.slot) }}</span>
-                        <div class="tooltip-title">
-                            <div :class="['tooltip-name', tooltip.item ? 'quality-' + tooltip.item.quality : '']">
-                                {{ getQualityName(tooltip.item?.quality) }} {{ getSlotName(tooltip.item?.slot) }}
-                            </div>
-                            <div :class="['tooltip-level', getEnhanceClass(tooltip.item ? tooltip.item.level : 0)]">
-                                强化等级 +{{ tooltip.item?.level }}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="tooltip-body">
-                        <div v-if="tooltip.item?.mainAffix" class="tooltip-main">
-                            <span class="stat-name">★ {{ getStatName(tooltip.item.mainAffix.stat) }}</span>
-                            <span class="stat-value">+{{ formatStatValue(tooltip.item.mainAffix.stat, getFinalStatValue(tooltip.item.mainAffix.value, tooltip.item?.quality)) }}</span>
-                        </div>
-                        <div v-if="tooltip.item?.subAffixes?.length" class="tooltip-subs">
-                            <div v-for="(sub, i) in tooltip.item.subAffixes" :key="i" class="tooltip-sub">
-                                <span class="stat-name">○ {{ getStatName(sub.stat) }}</span>
-                                <span class="stat-value">+{{ formatStatValue(sub.stat, getFinalStatValue(sub.value, tooltip.item?.quality)) }}</span>
-                            </div>
-                        </div>
-                    </div>
+                    <item-detail :item="tooltip.item" :show-actions="false" />
                     <div v-if="tooltip.item?.isBroken" class="tooltip-broken">💔 已损坏</div>
                 </div>
             </div>
