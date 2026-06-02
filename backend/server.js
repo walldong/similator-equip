@@ -317,6 +317,9 @@ app.post('/api/equipment/enhance', async (req, res) => {
     }
 
     if (result.success) {
+      // 计算强化后的售卖价格
+      const sellPrice = GameLogic.calculateEquipmentPrice(result.newItem);
+      
       // 强化成功,扣除金币
       await db.updateEquipment(equipmentId, {
         level: result.newItem.level,
@@ -339,7 +342,8 @@ app.post('/api/equipment/enhance', async (req, res) => {
         id: equipmentId,
         level: result.newItem.level,
         mainAffix: result.newItem.mainAffix,
-        subAffixes: result.newItem.subAffixes
+        subAffixes: result.newItem.subAffixes,
+        sellPrice: GameLogic.calculateEquipmentPrice(result.newItem)
       } : null
     });
   } catch (error) {

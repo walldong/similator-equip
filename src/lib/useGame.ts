@@ -422,14 +422,14 @@ export default function useGame() {
           gold: data.gold ?? prev.gold,
           inventory: prev.inventory.map((i) =>
             i.id === item.id
-              ? { ...i, level: data.data.level, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes }
+              ? { ...i, level: data.data.level, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes, sellPrice: data.data.sellPrice }
               : i
           ),
           equippedItems: {
             ...prev.equippedItems,
             [item.slot]:
               prev.equippedItems[item.slot]?.id === item.id
-                ? { ...prev.equippedItems[item.slot]!, level: data.data.level, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes }
+                ? { ...prev.equippedItems[item.slot]!, level: data.data.level, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes, sellPrice: data.data.sellPrice }
                 : prev.equippedItems[item.slot],
           },
         }));
