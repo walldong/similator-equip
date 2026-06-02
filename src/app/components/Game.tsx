@@ -84,6 +84,9 @@ export default function Game() {
     equipItem,
     unequipItem,
     enhanceItem,
+    sellItem,
+    sellBatch,
+    getSellBatchPreview,
     deleteItem,
     generateWorldMap,
     movePlayer,
@@ -109,6 +112,58 @@ export default function Game() {
   }, []);
 
   const [mainTab, setMainTab] = useState<'character' | 'adventure'>('character');
+  
+  // 售卖确认弹窗状态
+  const [sellConfirm, setSellConfirm] = useState<{
+    visible: boolean;
+    quality: Quality | null;
+    count: number;
+    totalPrice: number;
+    isSingle: boolean;
+    item: EquipmentItem | null;
+  }>({ visible: false, quality: null, count: 0, totalPrice: 0, isSingle: false, item: null });
+  
+  // 打开批量售卖确认弹窗
+  const openSellConfirm = useCallback(async (quality: Quality) => {
+    const preview = await getSellBatchPreview(quality);
+    if (preview && preview.count > 0) {
+      setSellConfirm({
+        visible: true,
+        quality,
+        count: preview.count,
+        totalPrice: preview.totalSellPrice,
+        isSingle: false,
+        item: null,
+      });
+    }
+  }, [getSellBatchPreview]);
+  
+  // 打开单件售卖确认弹窗
+  const openSingleSellConfirm = useCallback((item: EquipmentItem) => {
+    setSellConfirm({
+      visible: true,
+      quality: null,
+      count: 1,
+      totalPrice: item.sellPrice || 0,
+      isSingle: true,
+      item,
+    });
+  }, []);
+  
+  // 确认售卖
+  const confirmSell = useCallback(() => {
+    if (sellConfirm.isSingle && sellConfirm.item) {
+      sellItem(sellConfirm.item);
+    } else if (sellConfirm.quality) {
+      sellBatch(sellConfirm.quality);
+    }
+    setSellConfirm({ visible: false, quality: null, count: 0, totalPrice: 0, isSingle: false, item: null });
+  }, [sellConfirm.quality, sellConfirm.isSingle, sellConfirm.item, sellBatch, sellItem]);
+  
+  // 取消售卖
+  const cancelSell = useCallback(() => {
+    setSellConfirm({ visible: false, quality: null, count: 0, totalPrice: 0, isSingle: false, item: null });
+  }, []);
   
   // 获取总属性 - 直接使用后端返回的已计算值
   // 后端已经计算好了装备加成，前端不需要重复计算
@@ -374,9 +429,21 @@ export default function Game() {
                   <span className={styles.statValue}>{getTotalStats().critDmg}%</span>
                 </div>
               </div>
-              <button className={`${styles.btn} ${styles.btnPrimary} ${styles.btnFull}`} onClick={healPlayer} style={{ marginTop: 10 }}>
-                💚 恢复生命
-              </button>
+              {(() => {
+                const hpToHeal = state.maxHp - state.currentHp;
+                const goldCost = hpToHeal;
+                const canHeal = hpToHeal > 0 && state.gold >= goldCost;
+                return (
+                  <button 
+                    className={`${styles.btn} ${styles.btnPrimary} ${styles.btnFull}`} 
+                    onClick={healPlayer} 
+                    style={{ marginTop: 10 }}
+                    disabled={!canHeal}
+                  >
+                    💚 恢复生命 {hpToHeal > 0 ? `(${goldCost}💰)` : '(已满)'}
+                  </button>
+                );
+              })()}
 
               {/* 装备槽位 */}
               <div className={styles.equipmentSlots}>
@@ -419,6 +486,29 @@ export default function Game() {
             {/* 背包面板 */}
             <section className={styles.inventoryPanel}>
               <h2>🎒 背包 <span>{state.inventory.length}/50</span></h2>
+              
+              {/* 一键售卖按钮组 */}
+              <div className={styles.sellBatchButtons}>
+                <span className={styles.sellBatchLabel}>一键售卖:</span>
+                {(['normal', 'rare', 'epic'] as Quality[]).map((q) => {
+                  const count = state.inventory.filter(i => i.quality === q).length;
+                  const estimatedValue = state.inventory
+                    .filter(i => i.quality === q)
+                    .reduce((sum, i) => sum + (i.sellPrice || 0), 0);
+                  return (
+                    <button
+                      key={q}
+                      className={`${styles.btn} ${styles.btnSmall} ${styles[`quality_${q}`]}`}
+                      onClick={() => openSellConfirm(q)}
+                      disabled={count === 0}
+                      title={`${QualityNames[q]}装备 ${count}件，约${estimatedValue}💰`}
+                    >
+                      {QualityNames[q]}({count})
+                    </button>
+                  );
+                })}
+              </div>
+              
               <div className={styles.inventoryGrid}>
                 {state.inventory.map((item) => (
                   <div
@@ -484,8 +574,11 @@ export default function Game() {
                     >
                       强化 ({getEnhanceCost(selectedItem.level)}💰)
                     </button>
-                    <button className={`${styles.btn} ${styles.btnDanger}`} onClick={() => deleteItem(selectedItem)}>
-                      丢弃
+                    <button 
+                      className={`${styles.btn} ${styles.btnDanger}`}
+                      onClick={() => openSingleSellConfirm(selectedItem)}
+                    >
+                      售卖 ({selectedItem.sellPrice || 0}💰)
                     </button>
                   </div>
                 </div>
@@ -586,6 +679,75 @@ export default function Game() {
           </div>
         )}
       </div>
+
+      {/* 售卖确认弹窗 */}
+      {sellConfirm.visible && (
+        <div className={styles.modalOverlay} onClick={cancelSell}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>🛒 确认售卖</h3>
+            </div>
+            <div className={styles.modalBody}>
+              {sellConfirm.isSingle && sellConfirm.item ? (
+                // 单件售卖显示
+                <div className={styles.sellInfo}>
+                  <div className={styles.sellItemPreview}>
+                    <div className={styles.sellItemIcon} style={{ borderColor: QualityColors[sellConfirm.item.quality] }}>
+                      {SlotIcons[sellConfirm.item.slot]}
+                    </div>
+                    <div className={styles.sellItemDetails}>
+                      <div 
+                        className={styles.sellItemName}
+                        style={{ color: QualityColors[sellConfirm.item.quality] }}
+                      >
+                        {sellConfirm.item.name || `${QualityNames[sellConfirm.item.quality]}${SlotNames[sellConfirm.item.slot]}`}
+                      </div>
+                      <div className={styles.sellItemLevel}>
+                        +{sellConfirm.item.level} {SlotNames[sellConfirm.item.slot]}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={styles.sellDivider} />
+                  <div className={styles.sellInfoRow}>
+                    <span className={styles.sellInfoLabel}>获得金币</span>
+                    <span className={`${styles.sellInfoValue} ${styles.goldText}`}>💰 {sellConfirm.totalPrice}</span>
+                  </div>
+                </div>
+              ) : (
+                // 批量售卖显示
+                <div className={styles.sellInfo}>
+                  <div className={styles.sellInfoRow}>
+                    <span className={styles.sellInfoLabel}>装备品质</span>
+                    <span 
+                      className={styles.sellInfoValue}
+                      style={{ color: QualityColors[sellConfirm.quality!] }}
+                    >
+                      {sellConfirm.quality && QualityNames[sellConfirm.quality]}
+                    </span>
+                  </div>
+                  <div className={styles.sellInfoRow}>
+                    <span className={styles.sellInfoLabel}>装备数量</span>
+                    <span className={styles.sellInfoValue}>{sellConfirm.count} 件</span>
+                  </div>
+                  <div className={styles.sellInfoRow}>
+                    <span className={styles.sellInfoLabel}>获得金币</span>
+                    <span className={`${styles.sellInfoValue} ${styles.goldText}`}>💰 {sellConfirm.totalPrice}</span>
+                  </div>
+                </div>
+              )}
+              {!sellConfirm.isSingle && <p className={styles.sellWarning}>⚠️ 已装备的装备不会被售卖</p>}
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={`${styles.btn} ${styles.btnCancel}`} onClick={cancelSell}>
+                取消
+              </button>
+              <button className={`${styles.btn} ${styles.btnConfirm}`} onClick={confirmSell}>
+                确认售卖
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tooltip */}
       {tooltip.visible && tooltip.item && (

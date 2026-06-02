@@ -612,6 +612,76 @@ function processLevelUp(currentLevel, currentExp, expGain) {
     return { level, exp, levelUps };
 }
 
+/**
+ * 计算装备售价
+ * 基于品质、强化等级、属性值计算
+ * 攻击属性（ATK_FLAT, ATK_PERCENT）权重更高
+ * @param {object} equipment - 装备数据
+ * @returns {number} 售卖价格
+ */
+function calculateEquipmentPrice(equipment) {
+    // 品质基础价格
+    const QUALITY_BASE_PRICE = {
+        normal: 10,
+        rare: 30,
+        epic: 80,
+        legendary: 200,
+        mythic: 500
+    };
+    
+    // 属性权重（攻击属性权重更高）
+    const STAT_WEIGHT = {
+        ATK_FLAT: 2.0,
+        ATK_PERCENT: 2.0,
+        CRIT_RATE: 1.5,
+        CRIT_DMG: 1.5,
+        SPD_FLAT: 1.2,
+        SPD_PERCENT: 1.2,
+        DEF_FLAT: 1.0,
+        DEF_PERCENT: 1.0,
+        HP_FLAT: 0.8,
+        HP_PERCENT: 0.8,
+        STRENGTH: 1.0,
+        MOVE_SPEED: 0.5,
+        SKILL_CD: 0.5,
+        ARMOR: 1.0
+    };
+    
+    const basePrice = QUALITY_BASE_PRICE[equipment.quality] || 10;
+    
+    // 强化等级加成：每级增加 15%
+    const enhanceMultiplier = 1 + (equipment.level || 0) * 0.15;
+    
+    // 装备等级加成：每5级增加 10%
+    const equipLevelMultiplier = 1 + Math.floor((equipment.equipLevel || 1) / 5) * 0.1;
+    
+    // 计算属性值贡献
+    let attributeValue = 0;
+    
+    // 主词条
+    if (equipment.mainAffix) {
+        const weight = STAT_WEIGHT[equipment.mainAffix.stat] || 1.0;
+        attributeValue += equipment.mainAffix.value * weight;
+    }
+    
+    // 副词条
+    if (equipment.subAffixes && Array.isArray(equipment.subAffixes)) {
+        for (const affix of equipment.subAffixes) {
+            const weight = STAT_WEIGHT[affix.stat] || 1.0;
+            attributeValue += affix.value * weight;
+        }
+    }
+    
+    // 属性值转金币：每点属性值贡献 0.5 金币
+    const attributeGold = attributeValue * 0.5;
+    
+    // 最终价格
+    const finalPrice = Math.floor(basePrice * enhanceMultiplier * equipLevelMultiplier + attributeGold);
+    
+    // 最低价格 5 金币
+    return Math.max(5, finalPrice);
+}
+
 module.exports = {
     generateId,
     generateEquipment,
@@ -629,6 +699,7 @@ module.exports = {
     executeBattleRound,
     calculateBattleRewards,
     processLevelUp,
+    calculateEquipmentPrice,
     randomQuality,
     randomChoice,
     QUALITY_MULT,

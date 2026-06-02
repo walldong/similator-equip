@@ -86,10 +86,14 @@ async function getUserFullData(userId) {
   const inventory = [];
 
   for (const eq of equipments) {
+    // 计算装备售价
+    const sellPrice = GameLogic.calculateEquipmentPrice(eq);
+    const eqWithPrice = { ...eq, sellPrice };
+    
     if (eq.equipped) {
-      equippedItems[eq.slot] = eq;
+      equippedItems[eq.slot] = eqWithPrice;
     } else {
-      inventory.push(eq);
+      inventory.push(eqWithPrice);
     }
   }
 
@@ -454,6 +458,172 @@ app.post('/api/equipment/unequip', async (req, res) => {
 });
 
 // 删除装备
+// 售卖装备
+app.post('/api/equipment/sell', async (req, res) => {
+  try {
+    const { userId, equipmentId } = req.body;
+
+    if (!userId || !equipmentId) {
+      return res.status(400).json({ success: false, message: '参数不完整' });
+    }
+
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
+    const validation = await validateEquipmentOwnership(userId, parseInt(equipmentId));
+    if (!validation.valid) {
+      return res.status(403).json({ success: false, message: validation.error });
+    }
+
+    const equipment = validation.equipment;
+    
+    // 计算售卖价格
+    const sellPrice = GameLogic.calculateEquipmentPrice(equipment);
+    
+    // 删除装备并增加金币
+    await db.deleteEquipment(parseInt(equipmentId));
+    const newGold = user.gold + sellPrice;
+    await db.updateUser(userId, { gold: newGold });
+    await invalidateUserCache(userId);
+
+    console.log(`[售卖] 用户 ${user.username} 售卖装备 ${equipmentId}，获得 ${sellPrice} 金币`);
+
+    res.json({ 
+      success: true, 
+      message: `售卖成功，获得 ${sellPrice} 金币`,
+      data: {
+        sellPrice,
+        gold: newGold
+      }
+    });
+  } catch (error) {
+    console.error('[售卖错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 获取批量售卖预估价格
+app.post('/api/equipment/sell-batch-preview', async (req, res) => {
+  try {
+    const { userId, quality } = req.body;
+
+    if (!userId || !quality) {
+      return res.status(400).json({ success: false, message: '参数不完整' });
+    }
+
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
+    // 获取用户所有装备
+    const allEquipments = await db.getEquipmentsByUserId(userId);
+    
+    // 筛选指定稀有度的装备（排除已装备和损坏的）
+    const toSell = allEquipments.filter(eq => {
+      if (eq.quality !== quality) return false;
+      if (eq.equipped) return false;
+      if (eq.isBroken) return false;
+      return true;
+    });
+
+    // 计算总售价
+    let totalSellPrice = 0;
+    for (const eq of toSell) {
+      totalSellPrice += GameLogic.calculateEquipmentPrice(eq);
+    }
+
+    res.json({ 
+      success: true, 
+      data: {
+        count: toSell.length,
+        totalSellPrice,
+        quality
+      }
+    });
+  } catch (error) {
+    console.error('[预估价格错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 批量售卖装备（按稀有度）
+app.post('/api/equipment/sell-batch', async (req, res) => {
+  try {
+    const { userId, quality, excludeEquipped = true } = req.body;
+
+    if (!userId || !quality) {
+      return res.status(400).json({ success: false, message: '参数不完整' });
+    }
+
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
+    // 获取用户所有装备
+    const allEquipments = await db.getEquipmentsByUserId(userId);
+    
+    // 筛选指定稀有度的装备
+    const toSell = allEquipments.filter(eq => {
+      if (eq.quality !== quality) return false;
+      if (excludeEquipped && eq.equipped) return false;
+      if (eq.isBroken) return false;
+      return true;
+    });
+
+    if (toSell.length === 0) {
+      return res.json({ 
+        success: false, 
+        message: `没有可售卖的${QualityNames[quality] || quality}装备` 
+      });
+    }
+
+    // 计算总售价
+    let totalSellPrice = 0;
+    for (const eq of toSell) {
+      totalSellPrice += GameLogic.calculateEquipmentPrice(eq);
+    }
+
+    // 批量删除装备
+    for (const eq of toSell) {
+      await db.deleteEquipment(eq.id);
+    }
+
+    // 增加金币
+    const newGold = user.gold + totalSellPrice;
+    await db.updateUser(userId, { gold: newGold });
+    await invalidateUserCache(userId);
+
+    console.log(`[批量售卖] 用户 ${user.username} 售卖 ${toSell.length} 件${quality}装备，获得 ${totalSellPrice} 金币`);
+
+    res.json({ 
+      success: true, 
+      message: `售卖了 ${toSell.length} 件装备，获得 ${totalSellPrice} 金币`,
+      data: {
+        count: toSell.length,
+        totalSellPrice,
+        gold: newGold
+      }
+    });
+  } catch (error) {
+    console.error('[批量售卖错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 品质名称映射
+const QualityNames = {
+  normal: '普通',
+  rare: '稀有',
+  epic: '史诗',
+  legendary: '传说',
+  mythic: '神话'
+};
+
+// 删除装备（保留兼容）
 app.delete('/api/equipment/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -736,13 +906,42 @@ app.post('/api/heal', async (req, res) => {
 
     const userData = await getUserFullData(userId);
     const maxHp = userData.stats.maxHp;
-
-    await db.updateUser(userId, { current_hp: maxHp });
+    const currentHp = user.current_hp;
+    
+    // 计算需要恢复的血量和金币消耗
+    const hpToHeal = maxHp - currentHp;
+    if (hpToHeal <= 0) {
+      return res.json({ success: false, message: '生命值已满，无需恢复' });
+    }
+    
+    const goldCost = hpToHeal; // 每点血花费1金币
+    if (user.gold < goldCost) {
+      return res.json({ 
+        success: false, 
+        message: `金币不足！恢复生命需要 ${goldCost} 金币（当前: ${user.gold}）` 
+      });
+    }
+    
+    // 扣除金币并恢复生命
+    const newGold = user.gold - goldCost;
+    await db.updateUser(userId, { 
+      current_hp: maxHp,
+      gold: newGold
+    });
     await invalidateUserCache(userId);
 
-    console.log(`[恢复] 用户 ${user.username} 恢复生命`);
+    console.log(`[恢复] 用户 ${user.username} 恢复生命，消耗 ${goldCost} 金币`);
 
-    res.json({ success: true, message: '生命已恢复', data: { currentHp: maxHp, maxHp } });
+    res.json({ 
+      success: true, 
+      message: `生命已恢复，消耗 ${goldCost} 金币`, 
+      data: { 
+        currentHp: maxHp, 
+        maxHp,
+        gold: newGold,
+        goldCost
+      } 
+    });
   } catch (error) {
     console.error('[恢复错误]', error);
     res.status(500).json({ success: false, message: '服务器错误' });

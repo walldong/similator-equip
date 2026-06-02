@@ -9,6 +9,15 @@ import type { MapCell } from '@/types/map';
 // API 基础地址
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
+// 品质名称映射
+const QualityNames: Record<Quality, string> = {
+  normal: '普通',
+  rare: '稀有',
+  epic: '史诗',
+  legendary: '传说',
+  mythic: '神话',
+};
+
 // 游戏状态接口
 export interface GameState {
   isLoggedIn: boolean;
@@ -81,6 +90,7 @@ export interface EquipmentItem {
   name?: string;  // 装备名称
   mainAffix: { stat: string; value: number };
   subAffixes: Array<{ stat: string; value: number; upgradeCount?: number; isFixed?: boolean }>;
+  sellPrice?: number;  // 售卖价格（后端计算）
 }
 
 export interface LogEntry {
@@ -318,8 +328,11 @@ export default function useGame() {
           ...prev,
           currentHp: data.data.currentHp,
           maxHp: data.data.maxHp,
+          gold: data.data.gold,
         }));
-        addLog('💚 生命已恢复', 'success');
+        addLog(`💚 生命已恢复，消耗 ${data.data.goldCost} 金币`, 'success');
+      } else {
+        addLog(data.message || '恢复失败', 'warning');
       }
     } catch (error) {
       addLog('恢复失败', 'fail');
@@ -430,6 +443,85 @@ export default function useGame() {
   }, [state.userId, addLog]);
 
   // 删除装备
+  // 售卖装备
+  const sellItem = useCallback(async (item: EquipmentItem) => {
+    if (!state.userId) return;
+
+    try {
+      const data = await apiCall('/equipment/sell', {
+        method: 'POST',
+        body: JSON.stringify({ userId: state.userId, equipmentId: item.id }),
+      });
+
+      if (data.success) {
+        setState((prev) => ({
+          ...prev,
+          gold: data.data.gold,
+          inventory: prev.inventory.filter((i) => i.id !== item.id),
+        }));
+        addLog(`💰 售卖装备获得 ${data.data.sellPrice} 金币`, 'success');
+      } else {
+        addLog(data.message || '售卖失败', 'warning');
+      }
+    } catch (error) {
+      addLog('售卖失败', 'fail');
+    }
+  }, [state.userId, addLog]);
+
+  // 批量售卖装备（按稀有度）
+  const sellBatch = useCallback(async (quality: Quality) => {
+    if (!state.userId) return;
+
+    try {
+      const data = await apiCall('/equipment/sell-batch', {
+        method: 'POST',
+        body: JSON.stringify({ userId: state.userId, quality }),
+      });
+
+      if (data.success) {
+        setState((prev) => {
+          // 过滤掉已售卖的装备
+          const newInventory = prev.inventory.filter(
+            (item) => item.quality !== quality
+          );
+          return {
+            ...prev,
+            gold: data.data.gold,
+            inventory: newInventory,
+          };
+        });
+        addLog(`💰 批量售卖 ${data.data.count} 件${QualityNames[quality]}装备，获得 ${data.data.totalSellPrice} 金币`, 'success');
+      } else {
+        addLog(data.message || '批量售卖失败', 'warning');
+      }
+    } catch (error) {
+      addLog('批量售卖失败', 'fail');
+    }
+  }, [state.userId, addLog]);
+
+  // 获取批量售卖预估价格
+  const getSellBatchPreview = useCallback(async (quality: Quality): Promise<{ count: number; totalSellPrice: number } | null> => {
+    if (!state.userId) return null;
+
+    try {
+      const data = await apiCall('/equipment/sell-batch-preview', {
+        method: 'POST',
+        body: JSON.stringify({ userId: state.userId, quality }),
+      });
+
+      if (data.success) {
+        return {
+          count: data.data.count,
+          totalSellPrice: data.data.totalSellPrice,
+        };
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }, [state.userId]);
+
+  // 删除装备（保留兼容）
   const deleteItem = useCallback(async (item: EquipmentItem) => {
     if (!state.userId) return;
 
@@ -996,6 +1088,9 @@ export default function useGame() {
     equipItem,
     unequipItem,
     enhanceItem,
+    sellItem,
+    sellBatch,
+    getSellBatchPreview,
     deleteItem,
     addLog,
     generateWorldMap,
