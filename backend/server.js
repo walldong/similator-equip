@@ -217,7 +217,11 @@ async function getUserFullData(userId) {
 
   const stats = GameLogic.calculateTotalStats(user.level, Object.values(equippedItems).filter(e => e)) || { atk: 50, def: 30, spd: 20, critRate: 0, critDmg: 0, maxHp: 200 };
 
-  return { user, equipments, equippedItems, inventory, stats };
+  // 加载游戏地图
+  const gameState = await db.getGameState(userId);
+  const gameMap = gameState?.mapData || null;
+
+  return { user, equipments, equippedItems, inventory, stats, gameMap };
 }
 
 // 缓存辅助

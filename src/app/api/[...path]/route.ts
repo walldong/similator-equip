@@ -11,11 +11,18 @@ export async function GET(
   const searchParams = request.nextUrl.searchParams;
   const url = `${BACKEND_URL}${pathname}?${searchParams.toString()}`;
 
+  // 转发 Authorization header
+  const authHeader = request.headers.get('Authorization');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (authHeader) {
+    headers['Authorization'] = authHeader;
+  }
+
   const response = await fetch(url, {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
   });
 
   const data = await response.json();
@@ -33,12 +40,19 @@ export async function POST(
   const body = await request.text();
   console.log(`[API Proxy] POST ${pathname} -> ${url}`, body.substring(0, 100));
 
+  // 转发 Authorization header
+  const authHeader = request.headers.get('Authorization');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (authHeader) {
+    headers['Authorization'] = authHeader;
+  }
+
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body,
     });
 
@@ -61,11 +75,18 @@ export async function PUT(
 
   const body = await request.text();
 
+  // 转发 Authorization header
+  const authHeader = request.headers.get('Authorization');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (authHeader) {
+    headers['Authorization'] = authHeader;
+  }
+
   const response = await fetch(url, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body,
   });
 
@@ -82,11 +103,18 @@ export async function DELETE(
   const searchParams = request.nextUrl.searchParams;
   const url = `${BACKEND_URL}${pathname}?${searchParams.toString()}`;
 
+  // 转发 Authorization header
+  const authHeader = request.headers.get('Authorization');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (authHeader) {
+    headers['Authorization'] = authHeader;
+  }
+
   const response = await fetch(url, {
     method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
   });
 
   const data = await response.json();

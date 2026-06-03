@@ -320,6 +320,10 @@ export default function useGame() {
   // 强化成功广播文案（达到12级及以上）
   // 自动登录（使用token验证）
   useEffect(() => {
+    // 只在客户端执行
+    if (typeof window === 'undefined') return;
+    
+    // 防止重复执行
     if (initializingRef.current) return;
     initializingRef.current = true;
 
@@ -349,9 +353,14 @@ export default function useGame() {
               },
               gameMap: userData.gameMap || null,
             }));
+            // 如果没有地图数据，生成新地图
             if (!userData.gameMap) {
               generateWorldMap(userData.id, userData.level);
+            } else {
+              // 连接 WebSocket
+              connectWebSocket();
             }
+            addLog(`欢迎回来，${userData.nickname || userData.username}!`, 'success');
           } else {
             // Token 无效，清除本地存储
             localStorage.removeItem('gameToken');
