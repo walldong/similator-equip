@@ -1302,7 +1302,31 @@ export default function useGame() {
           });
         }
         
-        addLog(`📦 打开宝箱获得 ${result.rewards.gold} 金币, ${result.rewards.exp} 经验, ${result.rewards.items.length} 件装备`, 'success');
+        addLog(`📦 打开宝箱获得 ${result.rewards.gold} 💰, ${result.rewards.exp} ✨`, 'success');
+        
+        // 显示每件装备的详细信息
+        if (result.rewards.items && result.rewards.items.length > 0) {
+          result.rewards.items.forEach((item: { name?: string; quality: string; slot: string }) => {
+            const qualityEmoji: Record<string, string> = {
+              normal: '⚪',
+              rare: '🔵',
+              epic: '🟣',
+              legendary: '🟡',
+              mythic: '🔴',
+            };
+            const slotNames: Record<string, string> = {
+              weapon: '武器',
+              helmet: '头盔',
+              chestplate: '胸甲',
+              gloves: '手套',
+              boots: '鞋子',
+              accessory: '首饰',
+            };
+            const emoji = qualityEmoji[item.quality] || '⚪';
+            const slotName = slotNames[item.slot] || item.slot;
+            addLog(`${emoji} 获得装备: ${item.name || slotName}`, 'success');
+          });
+        }
       } else {
         addLog(data.message || '打开宝箱失败', 'warning');
       }
