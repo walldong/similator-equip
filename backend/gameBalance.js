@@ -406,7 +406,10 @@ function calculateMonsterStats(monsterType, monsterLevel, targetPlayerStats) {
     // 怪物防御（基础值 + 等级加成）
     const baseMonsterDef = 10 + monsterLevel * 3;
     
-    // 玩家对怪物的伤害
+    // 怪物基础血量（基于等级）
+    const baseHpByLevel = monsterLevel * (monsterType === 'boss' ? 50 : monsterType === 'miniboss' ? 35 : monsterType === 'elite' ? 25 : 15);
+    
+    // 玩家对怪物的伤害（用于参考）
     const playerDmg = calculateExpectedDamage(
         targetPlayerStats.atk,
         baseMonsterDef,
@@ -414,8 +417,10 @@ function calculateMonsterStats(monsterType, monsterLevel, targetPlayerStats) {
         targetPlayerStats.critDmg
     );
     
-    // 怪物血量 = 玩家平均伤害 * 目标回合数
-    const monsterHp = Math.floor(playerDmg.avg * balance.hpRounds);
+    // 怪物血量 = max(基础血量, 玩家伤害 * 回合数)
+    // 确保怪物血量至少能撑几个回合
+    const hpByPlayerDmg = Math.floor(playerDmg.avg * balance.hpRounds);
+    const monsterHp = Math.max(baseHpByLevel, hpByPlayerDmg);
     
     // 怪物攻击力 = 每回合造成玩家预期血量的X%伤害
     const targetDamagePerRound = targetPlayerStats.maxHp * balance.damageRatio;
