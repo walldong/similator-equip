@@ -228,7 +228,10 @@ export default function Game() {
   
   const [loginTab, setLoginTab] = useState<'login' | 'register'>('login');
   const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [registerUsername, setRegisterUsername] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [registerNickname, setRegisterNickname] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
@@ -267,15 +270,19 @@ export default function Game() {
       setMessage('请输入用户名');
       return;
     }
+    if (!loginPassword) {
+      setMessage('请输入密码');
+      return;
+    }
 
     setLoading(true);
-    const result = await login(loginUsername.trim());
+    const result = await login(loginUsername.trim(), loginPassword);
     setLoading(false);
 
     if (!result.success) {
       setMessage(result.message || '登录失败');
     }
-  }, [loginUsername, login]);
+  }, [loginUsername, loginPassword, login]);
 
   // 处理注册
   const handleRegister = useCallback(async () => {
@@ -283,15 +290,19 @@ export default function Game() {
       setMessage('请输入用户名');
       return;
     }
+    if (!registerPassword || registerPassword.length < 6) {
+      setMessage('密码至少6个字符');
+      return;
+    }
 
     setLoading(true);
-    const result = await register(registerUsername.trim());
+    const result = await register(registerUsername.trim(), registerPassword, registerNickname.trim());
     setLoading(false);
 
     if (!result.success) {
       setMessage(result.message || '注册失败');
     }
-  }, [registerUsername, register]);
+  }, [registerUsername, registerPassword, registerNickname, register]);
 
   // 显示 Tooltip
   const showTooltip = useCallback((e: React.MouseEvent, item: EquipmentItem) => {
@@ -393,10 +404,20 @@ export default function Game() {
                   autoComplete="off"
                 />
               </div>
+              <div className={styles.formGroup}>
+                <label>密码</label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="输入密码"
+                  autoComplete="off"
+                />
+              </div>
               <button type="submit" className={`${styles.btn} ${styles.btnPrimary} ${styles.btnFull}`} disabled={loading}>
                 {loading ? '登录中...' : '登录'}
               </button>
-              <p className={styles.formHint}>首次使用请先注册</p>
+              <p className={styles.formHint}>默认密码: 888888</p>
             </form>
           ) : (
             <form className={styles.loginForm} onSubmit={(e) => { e.preventDefault(); handleRegister(); }}>
@@ -410,6 +431,26 @@ export default function Game() {
                   autoComplete="off"
                 />
                 <p className={styles.inputHint}>字母、数字、下划线、中文，最长20字符</p>
+              </div>
+              <div className={styles.formGroup}>
+                <label>密码</label>
+                <input
+                  type="password"
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
+                  placeholder="输入密码 (至少6位)"
+                  autoComplete="off"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>昵称 (可选)</label>
+                <input
+                  type="text"
+                  value={registerNickname}
+                  onChange={(e) => setRegisterNickname(e.target.value)}
+                  placeholder="显示在广播中的名字"
+                  autoComplete="off"
+                />
               </div>
               <button type="submit" className={`${styles.btn} ${styles.btnSuccess} ${styles.btnFull}`} disabled={loading}>
                 {loading ? '注册中...' : '注册'}

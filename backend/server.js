@@ -7,7 +7,63 @@ const cors = require('cors');
 const path = require('path');
 const http = require('http');
 const WebSocket = require('ws');
+const crypto = require('crypto');
 const config = require('./config');
+
+// JWT 配置
+const JWT_SECRET = process.env.JWT_SECRET || 'similator-equip-secret-key-2024';
+const TOKEN_EXPIRE = 7 * 24 * 60 * 60 * 1000; // 7天
+
+// 生成 Token
+function generateToken(userId, username) {
+  const payload = { userId, username, timestamp: Date.now() };
+  const data = JSON.stringify(payload);
+  return Buffer.from(data).toString('base64') + '.' + 
+         crypto.createHmac('sha256', JWT_SECRET).update(data).digest('hex');
+}
+
+// 验证 Token
+function verifyToken(token) {
+  try {
+    const [payloadB64, signature] = token.split('.');
+    const data = Buffer.from(payloadB64, 'base64').toString();
+    const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(data).digest('hex');
+    if (signature !== expectedSig) return null;
+    const payload = JSON.parse(data);
+    // 检查过期
+    if (Date.now() - payload.timestamp > TOKEN_EXPIRE) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 密码加密
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + 'salt-prefix').digest('hex');
+}
+
+// 验证密码
+function verifyPassword(password, hashedPassword) {
+  // 兼容旧密码（未加密的）
+  if (password === hashedPassword) return true;
+  return hashPassword(password) === hashedPassword;
+}
+
+// Token 验证中间件
+function authMiddleware(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    return res.status(401).json({ success: false, message: '未登录', needLogin: true });
+  }
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ success: false, message: 'Token已过期，请重新登录', needLogin: true });
+  }
+  req.userId = payload.userId;
+  req.username = payload.username;
+  next();
+}
 
 // 导入游戏逻辑和服务
 const GameLogic = require('./gameLogic');
@@ -184,10 +240,14 @@ async function invalidateUserCache(userId) {
 // 注册
 app.post('/api/register', async (req, res) => {
   try {
-    const { username } = req.body;
+    const { username, password, nickname } = req.body;
 
     if (!username || !username.trim()) {
       return res.status(400).json({ success: false, message: '用户名不能为空' });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, message: '密码至少6个字符' });
     }
 
     const trimmedName = username.trim();
@@ -205,7 +265,12 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ success: false, message: '用户名已存在' });
     }
 
-    const user = await db.createUser(trimmedName);
+    const hashedPassword = hashPassword(password);
+    const user = await db.createUser(trimmedName, hashedPassword);
+    
+    // 设置昵称
+    const userNickname = nickname?.trim() || trimmedName;
+    await db.updateNickname(user.id, userNickname);
 
     // 给新玩家初始装备
     const initialEquipments = [
@@ -218,6 +283,9 @@ app.post('/api/register', async (req, res) => {
       await db.createEquipment(user.id, { ...eq, equipped: true });
     }
 
+    // 生成 Token
+    const token = generateToken(user.id, user.username);
+
     console.log(`[注册] 用户 ${trimmedName} 注册成功`);
 
     const userData = await getUserFullData(user.id);
@@ -228,7 +296,9 @@ app.post('/api/register', async (req, res) => {
       data: {
         id: user.id,
         username: user.username,
+        nickname: userNickname,
         uuid: user.uuid,
+        token,
         level: user.level,
         exp: user.exp,
         gold: user.gold,
@@ -248,10 +318,14 @@ app.post('/api/register', async (req, res) => {
 // 登录
 app.post('/api/login', async (req, res) => {
   try {
-    const { username } = req.body;
+    const { username, password } = req.body;
 
     if (!username || !username.trim()) {
       return res.status(400).json({ success: false, message: '用户名不能为空' });
+    }
+
+    if (!password) {
+      return res.status(400).json({ success: false, message: '请输入密码' });
     }
 
     const user = await db.findUserByUsername(username.trim());
@@ -260,7 +334,15 @@ app.post('/api/login', async (req, res) => {
       return res.status(404).json({ success: false, message: '用户不存在,请先注册' });
     }
 
+    // 验证密码
+    if (!verifyPassword(password, user.password)) {
+      return res.status(401).json({ success: false, message: '密码错误' });
+    }
+
     await db.updateLoginTime(user.id);
+
+    // 生成 Token
+    const token = generateToken(user.id, user.username);
 
     const userData = await getUserFullData(user.id);
 
@@ -272,7 +354,9 @@ app.post('/api/login', async (req, res) => {
       data: {
         id: user.id,
         username: user.username,
+        nickname: user.nickname || user.username,
         uuid: user.uuid,
+        token,
         level: user.level,
         exp: user.exp,
         gold: user.gold,
@@ -280,7 +364,8 @@ app.post('/api/login', async (req, res) => {
         maxHp: userData.stats.maxHp,
         stats: userData.stats,
         inventory: userData.inventory,
-        equippedItems: userData.equippedItems
+        equippedItems: userData.equippedItems,
+        gameMap: userData.gameMap
       }
     });
   } catch (error) {
@@ -393,13 +478,14 @@ app.post('/api/equipment/enhance', async (req, res) => {
       // 强化到12级及以上时发送世界广播
       if (result.newItem.level >= 12) {
         const equipName = equipment.name || `${GameLogic.QUALITY_NAMES[equipment.quality]}${GameLogic.SLOT_NAMES[equipment.slot]}`;
-        const messages = getEnhanceBroadcastMessages(user.username, result.newItem.level, equipName);
+        const displayName = user.nickname || user.username;
+        const messages = getEnhanceBroadcastMessages(displayName, result.newItem.level, equipName);
         if (messages.length > 0) {
           const randomMessage = messages[Math.floor(Math.random() * messages.length)];
           broadcastMessage({
             type: 'broadcast',
             broadcastType: 'enhance',
-            username: user.username,
+            username: displayName,
             message: randomMessage,
             items: [{ name: equipName, quality: equipment.quality }],
             timestamp: Date.now()
@@ -925,14 +1011,15 @@ app.post('/api/battle/end', async (req, res) => {
       // 检查是否获得神话装备，发送世界广播
       const mythicItems = rewards.items.filter(item => item.quality === 'mythic');
       if (mythicItems.length > 0) {
+        const displayName = user.nickname || user.username;
         mythicItems.forEach(item => {
           const equipName = item.name || '神话装备';
-          const messages = getDropBroadcastMessages(user.username, battle.monsterName || '未知怪物', equipName);
+          const messages = getDropBroadcastMessages(displayName, battle.monsterName || '未知怪物', equipName);
           const randomMessage = messages[Math.floor(Math.random() * messages.length)];
           broadcastMessage({
             type: 'broadcast',
             broadcastType: 'drop',
-            username: user.username,
+            username: displayName,
             message: randomMessage,
             items: [{ name: equipName, quality: 'mythic' }],
             timestamp: Date.now()
@@ -987,6 +1074,97 @@ app.post('/api/battle/end', async (req, res) => {
     res.json({ success: true, data: responseData });
   } catch (error) {
     console.error('[结束战斗错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// ==================== 用户信息 API ====================
+
+// 修改昵称
+app.post('/api/user/nickname', authMiddleware, async (req, res) => {
+  try {
+    const { nickname } = req.body;
+    
+    if (!nickname || !nickname.trim()) {
+      return res.status(400).json({ success: false, message: '昵称不能为空' });
+    }
+    
+    const trimmedNickname = nickname.trim();
+    
+    if (trimmedNickname.length > 20) {
+      return res.status(400).json({ success: false, message: '昵称最长20个字符' });
+    }
+    
+    await db.updateNickname(req.userId, trimmedNickname);
+    await invalidateUserCache(req.userId);
+    
+    console.log(`[昵称] 用户 ${req.username} 修改昵称为: ${trimmedNickname}`);
+    
+    res.json({
+      success: true,
+      message: '昵称修改成功',
+      data: { nickname: trimmedNickname }
+    });
+  } catch (error) {
+    console.error('[修改昵称错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 修改密码
+app.post('/api/user/password', authMiddleware, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: '请输入旧密码和新密码' });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: '新密码至少6个字符' });
+    }
+    
+    const user = await db.findUserById(req.userId);
+    if (!verifyPassword(oldPassword, user.password)) {
+      return res.status(401).json({ success: false, message: '旧密码错误' });
+    }
+    
+    const hashedPassword = hashPassword(newPassword);
+    await db.updatePassword(req.userId, hashedPassword);
+    
+    console.log(`[密码] 用户 ${req.username} 修改密码成功`);
+    
+    res.json({ success: true, message: '密码修改成功' });
+  } catch (error) {
+    console.error('[修改密码错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 验证Token
+app.get('/api/auth/verify', authMiddleware, async (req, res) => {
+  try {
+    const userData = await getUserFullData(req.userId);
+    
+    res.json({
+      success: true,
+      data: {
+        id: req.userId,
+        username: req.username,
+        nickname: userData.user.nickname || userData.user.username,
+        level: userData.user.level,
+        exp: userData.user.exp,
+        gold: userData.user.gold,
+        currentHp: userData.user.current_hp,
+        maxHp: userData.stats.maxHp,
+        stats: userData.stats,
+        inventory: userData.inventory,
+        equippedItems: userData.equippedItems,
+        gameMap: userData.gameMap
+      }
+    });
+  } catch (error) {
+    console.error('[验证Token错误]', error);
     res.status(500).json({ success: false, message: '服务器错误' });
   }
 });

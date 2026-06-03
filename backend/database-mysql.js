@@ -30,6 +30,8 @@ function createDatabase(config) {
           CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
             username VARCHAR(50) UNIQUE NOT NULL,
+            password VARCHAR(255) DEFAULT '888888',
+            nickname VARCHAR(50),
             uuid VARCHAR(36) UNIQUE NOT NULL,
             level INT DEFAULT 1,
             exp INT DEFAULT 0,
@@ -98,6 +100,23 @@ function createDatabase(config) {
           // 表不存在或迁移失败，忽略
         }
         
+        // 迁移：为 users 表添加 password 和 nickname 列
+        try {
+          const [pwdColumns] = await conn.execute('SHOW COLUMNS FROM users LIKE "password"');
+          if (pwdColumns.length === 0) {
+            await conn.execute('ALTER TABLE users ADD COLUMN password VARCHAR(255) DEFAULT "888888" AFTER username');
+            console.log('[MySQL] 添加 password 列，默认密码 888888');
+          }
+        } catch (e) {}
+        
+        try {
+          const [nickColumns] = await conn.execute('SHOW COLUMNS FROM users LIKE "nickname"');
+          if (nickColumns.length === 0) {
+            await conn.execute('ALTER TABLE users ADD COLUMN nickname VARCHAR(50) AFTER password');
+            console.log('[MySQL] 添加 nickname 列');
+          }
+        } catch (e) {}
+        
         console.log('[MySQL] 数据表初始化完成');
       } finally {
         conn.release();
@@ -116,15 +135,17 @@ function createDatabase(config) {
     
     // ==================== 用户操作 ====================
     
-    createUser(username) {
+    createUser(username, password) {
       const uuid = generateUUID();
+      const nickname = username; // 默认昵称等于用户名
       const stmt = `
-        INSERT INTO users (username, uuid, level, exp, gold, current_hp)
-        VALUES (?, ?, 1, 0, 100, 200)
+        INSERT INTO users (username, password, nickname, uuid, level, exp, gold, current_hp)
+        VALUES (?, ?, ?, ?, 1, 0, 100, 200)
       `;
-      return pool.execute(stmt, [username, uuid]).then(([result]) => ({
+      return pool.execute(stmt, [username, password, nickname, uuid]).then(([result]) => ({
         id: result.insertId,
         username,
+        nickname,
         uuid
       }));
     },
@@ -134,11 +155,11 @@ function createDatabase(config) {
         .then(([rows]) => {
           const row = rows[0];
           if (!row) return null;
-          // 确保字段名一致（MySQL 可能返回小写字段名）
-          // 注意：使用 ?? 而不是 ||，因为 0 是有效值
           return {
             id: row.id ?? row.ID,
             username: row.username ?? row.USERNAME,
+            password: row.password ?? row.PASSWORD,
+            nickname: row.nickname ?? row.NICKNAME ?? row.username ?? row.USERNAME,
             uuid: row.uuid ?? row.UUID,
             level: row.level ?? row.LEVEL ?? 1,
             exp: row.exp ?? row.EXP ?? 0,
@@ -155,10 +176,11 @@ function createDatabase(config) {
         .then(([rows]) => {
           const row = rows[0];
           if (!row) return null;
-          // 使用 ?? 而不是 ||，因为 0 是有效值
           return {
             id: row.id ?? row.ID,
             username: row.username ?? row.USERNAME,
+            password: row.password ?? row.PASSWORD,
+            nickname: row.nickname ?? row.NICKNAME ?? row.username ?? row.USERNAME,
             uuid: row.uuid ?? row.UUID,
             level: row.level ?? row.LEVEL ?? 1,
             exp: row.exp ?? row.EXP ?? 0,
@@ -183,6 +205,14 @@ function createDatabase(config) {
     
     updateLoginTime(id) {
       return pool.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+    },
+    
+    updateNickname(id, nickname) {
+      return pool.execute('UPDATE users SET nickname = ? WHERE id = ?', [nickname, id]);
+    },
+    
+    updatePassword(id, password) {
+      return pool.execute('UPDATE users SET password = ? WHERE id = ?', [password, id]);
     },
     
     // ==================== 装备操作 ====================

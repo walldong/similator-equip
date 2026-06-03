@@ -38,6 +38,7 @@ export interface GameState {
   isLoggedIn: boolean;
   userId: number | null;
   username: string;
+  nickname: string;
   level: number;
   exp: number;
   gold: number;
@@ -137,10 +138,12 @@ export interface LogEntry {
 
 // API 调用封装
 async function apiCall(endpoint: string, options: RequestInit = {}) {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('gameToken') : null;
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -163,6 +166,7 @@ export default function useGame() {
     isLoggedIn: false,
     userId: null,
     username: '',
+    nickname: '',
     level: 1,
     exp: 0,
     gold: 100,
@@ -314,16 +318,50 @@ export default function useGame() {
   }, []);
 
   // 强化成功广播文案（达到12级及以上）
-  // 自动登录
+  // 自动登录（使用token验证）
   useEffect(() => {
     if (initializingRef.current) return;
     initializingRef.current = true;
 
-    const savedUsername = localStorage.getItem('gameUsername');
-    if (savedUsername) {
-      login(savedUsername).catch(() => {
-        localStorage.removeItem('gameUsername');
-      });
+    const savedToken = localStorage.getItem('gameToken');
+    if (savedToken) {
+      // 使用 token 验证登录状态
+      apiCall('/auth/verify', { method: 'GET' })
+        .then((data) => {
+          if (data.success) {
+            const userData = data.data;
+            setState((prev) => ({
+              ...prev,
+              isLoggedIn: true,
+              userId: userData.id,
+              username: userData.username,
+              nickname: userData.nickname || userData.username,
+              level: userData.level,
+              exp: userData.exp,
+              gold: userData.gold,
+              currentHp: userData.currentHp,
+              maxHp: userData.maxHp,
+              stats: userData.stats,
+              inventory: userData.inventory || [],
+              equippedItems: userData.equippedItems || {
+                weapon: null, helmet: null, chestplate: null,
+                gloves: null, boots: null, accessory: null,
+              },
+              gameMap: userData.gameMap || null,
+            }));
+            if (!userData.gameMap) {
+              generateWorldMap(userData.id, userData.level);
+            }
+          } else {
+            // Token 无效，清除本地存储
+            localStorage.removeItem('gameToken');
+            localStorage.removeItem('gameUsername');
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('gameToken');
+          localStorage.removeItem('gameUsername');
+        });
     }
   }, []);
 
@@ -341,16 +379,20 @@ export default function useGame() {
 
 
   // 登录
-  const login = useCallback(async (username: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     try {
       const data = await apiCall('/login', {
         method: 'POST',
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, password }),
       });
 
       if (data.success) {
         const userData = data.data;
 
+        // 存储 token 和用户信息
+        if (userData.token) {
+          localStorage.setItem('gameToken', userData.token);
+        }
         localStorage.setItem('gameUsername', username);
 
         setState((prev) => ({
@@ -358,6 +400,7 @@ export default function useGame() {
           isLoggedIn: true,
           userId: userData.id,
           username: userData.username,
+          nickname: userData.nickname || userData.username,
           level: userData.level,
           exp: userData.exp,
           gold: userData.gold,
@@ -369,12 +412,15 @@ export default function useGame() {
             weapon: null, helmet: null, chestplate: null,
             gloves: null, boots: null, accessory: null,
           },
+          gameMap: userData.gameMap || null,
         }));
 
-        // 生成地图,传递 userId 和 level
-        generateWorldMap(userData.id, userData.level);
+        // 如果没有地图数据，生成新地图
+        if (!userData.gameMap) {
+          generateWorldMap(userData.id, userData.level);
+        }
 
-        addLog(`欢迎 ${userData.username}!`, 'success');
+        addLog(`欢迎 ${userData.nickname || userData.username}!`, 'success');
         return { success: true };
       }
 
@@ -385,16 +431,20 @@ export default function useGame() {
   }, [addLog]);
 
   // 注册
-  const register = useCallback(async (username: string) => {
+  const register = useCallback(async (username: string, password: string, nickname?: string) => {
     try {
       const data = await apiCall('/register', {
         method: 'POST',
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, password, nickname }),
       });
 
       if (data.success) {
         const userData = data.data;
 
+        // 存储 token
+        if (userData.token) {
+          localStorage.setItem('gameToken', userData.token);
+        }
         localStorage.setItem('gameUsername', username);
 
         setState((prev) => ({
@@ -402,6 +452,7 @@ export default function useGame() {
           isLoggedIn: true,
           userId: userData.id,
           username: userData.username,
+          nickname: userData.nickname || userData.username,
           level: userData.level,
           exp: userData.exp,
           gold: userData.gold,
@@ -415,7 +466,10 @@ export default function useGame() {
           },
         }));
 
-        addLog(`注册成功! 欢迎 ${userData.username}!`, 'success');
+        // 生成地图
+        generateWorldMap(userData.id, userData.level);
+
+        addLog(`注册成功! 欢迎 ${userData.nickname || userData.username}!`, 'success');
         return { success: true };
       }
 
@@ -1338,6 +1392,7 @@ export default function useGame() {
   // 退出登录
   const logout = useCallback(() => {
     localStorage.removeItem('gameUsername');
+    localStorage.removeItem('gameToken');
     // 停止自动战斗
     autoBattleRunningRef.current = false;
     if (autoBattleTimerRef.current) {
@@ -1347,6 +1402,7 @@ export default function useGame() {
       isLoggedIn: false,
       userId: null,
       username: '',
+      nickname: '',
       level: 1,
       exp: 0,
       gold: 100,
