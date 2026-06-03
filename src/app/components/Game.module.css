@@ -1230,6 +1230,12 @@
   color: #888;
 }
 
+.chestHint {
+  color: #ffd700;
+  font-weight: bold;
+  animation: pulse 1s infinite;
+}
+
 .positionInfo {
   font-size: 12px;
   color: #4a90d9;

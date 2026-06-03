@@ -35,6 +35,42 @@ const ENTITY_ICONS: Record<string, string> = {
 export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: PixiMapProps) {
   const [keys, setKeys] = useState<Set<string>>(new Set());
   const [moveLock, setMoveLock] = useState(false);
+  const [chestHint, setChestHint] = useState<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
+
+  // 检查当前位置是否有宝箱
+  const getCurrentCell = useCallback(() => {
+    if (!map) return null;
+    const { cellX, cellY } = map.player;
+    return map.cells[cellY]?.[cellX] || null;
+  }, [map]);
+
+  // 检查玩家脚下是否有未打开的宝箱
+  useEffect(() => {
+    const currentCell = getCurrentCell();
+    if (currentCell?.entity?.type === 'chest' && !currentCell.entity.defeated) {
+      setChestHint({ visible: true, x: map!.player.cellX, y: map!.player.cellY });
+    } else {
+      setChestHint({ visible: false, x: 0, y: 0 });
+    }
+  }, [map?.player.cellX, map?.player.cellY, getCurrentCell]);
+
+  // F键打开宝箱
+  useEffect(() => {
+    if (!map || !chestHint.visible) return;
+    
+    const handleFKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const currentCell = getCurrentCell();
+        if (currentCell?.entity?.type === 'chest' && !currentCell.entity.defeated) {
+          onEncounter(currentCell);
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleFKey);
+    return () => window.removeEventListener('keydown', handleFKey);
+  }, [map, chestHint.visible, getCurrentCell, onEncounter]);
 
   // 计算视野范围
   const getViewport = useCallback(() => {
@@ -114,11 +150,9 @@ export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: 
           setMoveLock(true);
           
           if (cell.entity && !cell.entity.defeated) {
-            // 对于宝箱，先移动玩家到宝箱位置，然后再打开
+            // 对于宝箱，只移动到宝箱位置，等待玩家按F键打开
             if (cell.entity.type === 'chest') {
               onMove(dx, dy);
-              // 等待移动完成后再打开宝箱
-              setTimeout(() => onEncounter(cell), 50);
             } else {
               // 对于怪物，触发战斗（战斗胜利后会移动到怪物位置）
               onEncounter(cell);
@@ -244,7 +278,11 @@ export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: 
       
       {/* 控制提示 */}
       <div className={styles.controlHint}>
-        使用 WASD 或方向键移动
+        {chestHint.visible ? (
+          <span className={styles.chestHint}>📦 按 F 打开宝箱</span>
+        ) : (
+          '使用 WASD 或方向键移动'
+        )}
       </div>
       
       {/* 位置信息 */}

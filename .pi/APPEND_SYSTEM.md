@@ -22,3 +22,4 @@
 
     # 查看日志
     docker logs game-app 2>&1 | tail -2
+ 4. 验证成功后，将改动提交commit
