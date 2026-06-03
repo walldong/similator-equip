@@ -1307,17 +1307,25 @@ function WorldBroadcast({ broadcasts }: WorldBroadcastProps) {
   const [animationKey, setAnimationKey] = useState(0); // 用于重置动画
   const scrollCountRef = useRef(0);
   
-  // 监听动画结束事件，滚动3次后切换下一条
+  // 根据广播队列长度决定播放次数
+  const getMaxScrollCount = useCallback((count: number) => {
+    if (count > 10) return 1;  // 超过10条，播放1次
+    if (count > 5) return 2;   // 超过5条，播放2次
+    return 3;                   // 默认播放3次
+  }, []);
+  
+  // 监听动画结束事件
   const handleAnimationEnd = useCallback(() => {
     scrollCountRef.current++;
     
-    if (scrollCountRef.current >= 3) {
-      // 滚动3次后切换到下一条
+    const maxScrollCount = getMaxScrollCount(broadcasts.length);
+    if (scrollCountRef.current >= maxScrollCount) {
+      // 达到播放次数后切换到下一条
       scrollCountRef.current = 0;
       setCurrentIndex((prev) => (prev + 1) % broadcasts.length);
       setAnimationKey((prev) => prev + 1); // 重置动画
     }
-  }, [broadcasts.length]);
+  }, [broadcasts.length, getMaxScrollCount]);
   
   // 当广播列表变化时，重置到最新的一条
   useEffect(() => {
