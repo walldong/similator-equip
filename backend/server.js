@@ -201,6 +201,9 @@ async function getUserFullData(userId) {
   const inventory = [];
 
   for (const eq of equipments) {
+    // 确保装备数据完整有效
+    if (!eq || !eq.id || !eq.slot) continue;
+    
     // 计算装备售价
     const sellPrice = GameLogic.calculateEquipmentPrice(eq);
     const eqWithPrice = { ...eq, sellPrice };

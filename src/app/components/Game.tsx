@@ -348,7 +348,7 @@ export default function Game() {
     // 获取已穿戴装备的ID集合
     const equippedIds = new Set(
       Object.values(state.equippedItems)
-        .filter(item => item !== null)
+        .filter(item => item !== null && item !== undefined)
         .map(item => item!.id)
     );
     
@@ -363,7 +363,7 @@ export default function Game() {
   // 检查物品是否已穿戴
   const isItemEquipped = useCallback((item: EquipmentItem): boolean => {
     return Object.values(state.equippedItems).some(
-      equipped => equipped !== null && equipped.id === item.id
+      equipped => equipped !== null && equipped !== undefined && equipped.id === item.id
     );
   }, [state.equippedItems]);
 
