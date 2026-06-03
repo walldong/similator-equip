@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import useGame, { EquipmentItem, LogEntry, BattleState, SkillData, BroadcastMessage, BroadcastItem } from '@/lib/useGame';
 import { EquipmentSlot, Quality } from '@/types';
 import { MapCell, GameMap } from '@/types/map';
@@ -109,6 +109,7 @@ export default function Game() {
     sellBatch,
     getSellBatchPreview,
     deleteItem,
+    addLog,
     generateWorldMap,
     enterNextMap,
     restartCurrentMap,
@@ -141,7 +142,7 @@ export default function Game() {
     }
   }, []);
 
-  const [mainTab, setMainTab] = useState<'character' | 'adventure'>('character');
+  const [mainTab, setMainTab] = useState<'character' | 'adventure' | 'forge'>('character');
   
   // 售卖确认弹窗状态
   const [sellConfirm, setSellConfirm] = useState<{
@@ -495,6 +496,12 @@ export default function Game() {
             🧙 角色/装备
           </button>
           <button
+            className={`${styles.mainTab} ${mainTab === 'forge' ? styles.active : ''}`}
+            onClick={() => setMainTab('forge')}
+          >
+            🔨 打造
+          </button>
+          <button
             className={`${styles.mainTab} ${mainTab === 'adventure' ? styles.active : ''}`}
             onClick={() => setMainTab('adventure')}
           >
@@ -746,6 +753,24 @@ export default function Game() {
               </div>
             </section>
           </div>
+        )}
+
+        {/* 打造页签 */}
+        {mainTab === 'forge' && (
+          <ForgePanel
+            inventory={state.inventory}
+            equippedItems={state.equippedItems}
+            gold={state.gold}
+            level={state.level}
+            enhanceItem={enhanceItem}
+            addLog={addLog}
+            SlotIcons={SlotIcons}
+            SlotNames={SlotNames}
+            QualityColors={QualityColors}
+            QualityNames={QualityNames}
+            StatNames={StatNames}
+            getEnhanceCost={getEnhanceCost}
+          />
         )}
 
         {/* 历练页签 */}
@@ -1066,6 +1091,440 @@ interface BattleViewProps {
   endBattle: (victory: boolean) => void;
   playerHp: number;
   playerMaxHp: number;
+}
+
+// 打造面板组件
+interface ForgePanelProps {
+  inventory: EquipmentItem[];
+  equippedItems: Record<EquipmentSlot, EquipmentItem | null>;
+  gold: number;
+  level: number;
+  enhanceItem: (item: EquipmentItem) => Promise<void>;
+  addLog: (text: string, type: 'info' | 'success' | 'warning' | 'fail') => void;
+  SlotIcons: Record<EquipmentSlot, string>;
+  SlotNames: Record<EquipmentSlot, string>;
+  QualityColors: Record<Quality, string>;
+  QualityNames: Record<Quality, string>;
+  StatNames: Record<string, string>;
+  getEnhanceCost: (level: number) => number;
+}
+
+function ForgePanel({
+  inventory,
+  equippedItems,
+  gold,
+  level,
+  enhanceItem,
+  addLog,
+  SlotIcons,
+  SlotNames,
+  QualityColors,
+  QualityNames,
+  StatNames,
+  getEnhanceCost,
+}: ForgePanelProps) {
+  const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
+  const [forgeItem, setForgeItem] = useState<EquipmentItem | null>(null);
+  const [prevForgeItem, setPrevForgeItem] = useState<EquipmentItem | null>(null); // 强化前的装备状态
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [waitingForResult, setWaitingForResult] = useState(false); // 等待强化结果
+  const [enhanceResult, setEnhanceResult] = useState<'success' | 'fail' | 'broken' | null>(null);
+  const [showResult, setShowResult] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const forgeRef = useRef<HTMLDivElement>(null);
+
+  // 获取所有装备（背包+已穿戴）
+  const allItems = useMemo(() => {
+    const items: EquipmentItem[] = [...inventory];
+    Object.values(equippedItems).forEach(item => {
+      if (item && !items.find(i => i.id === item.id)) {
+        items.push(item);
+      }
+    });
+    return items;
+  }, [inventory, equippedItems]);
+
+  // 检查物品是否已穿戴
+  const isItemEquipped = useCallback((item: EquipmentItem): boolean => {
+    return Object.values(equippedItems).some(
+      equipped => equipped !== null && equipped !== undefined && equipped.id === item.id
+    );
+  }, [equippedItems]);
+
+  // 格式化词条
+  const formatStat = (stat: string, value: number): string => {
+    const name = StatNames[stat] || stat;
+    const isPercent = stat.includes('PERCENT') || stat === 'CRIT_RATE' || stat === 'CRIT_DMG';
+    return `${name} +${value}${isPercent ? '%' : ''}`;
+  };
+
+  // 获取强化等级样式类
+  const getEnhanceClass = (level: number): string => {
+    if (level <= 10) return styles.enhanceLow;
+    if (level <= 15) return styles.enhanceMedium;
+    if (level <= 19) return styles.enhanceHigh;
+    return styles.enhanceMax;
+  };
+
+  // 双击装备放入强化炉
+  const handleItemDoubleClick = useCallback((item: EquipmentItem) => {
+    if (item.isBroken) {
+      addLog('💔 该装备已损坏，无法强化！', 'warning');
+      return;
+    }
+    if (item.level >= 21) {
+      addLog('⭐ 该装备已达到最高强化等级！', 'warning');
+      return;
+    }
+    setForgeItem(item);
+    setSelectedItem(null);
+  }, [addLog]);
+
+  // 拖拽开始
+  const handleDragStart = useCallback((e: React.DragEvent, item: EquipmentItem) => {
+    e.dataTransfer.setData('text/plain', item.id);
+    setIsDragging(true);
+  }, []);
+
+  // 拖拽结束
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // 拖拽经过强化炉
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (forgeRef.current) {
+      forgeRef.current.classList.add(styles.forgeHighlight);
+    }
+  }, []);
+
+  // 拖拽离开强化炉
+  const handleDragLeave = useCallback(() => {
+    if (forgeRef.current) {
+      forgeRef.current.classList.remove(styles.forgeHighlight);
+    }
+  }, []);
+
+  // 放入强化炉
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (forgeRef.current) {
+      forgeRef.current.classList.remove(styles.forgeHighlight);
+    }
+    const itemId = e.dataTransfer.getData('text/plain');
+    const item = allItems.find(i => i.id === itemId);
+    if (item) {
+      if (item.isBroken) {
+        addLog('💔 该装备已损坏，无法强化！', 'warning');
+        return;
+      }
+      if (item.level >= 21) {
+        addLog('⭐ 该装备已达到最高强化等级！', 'warning');
+        return;
+      }
+      setForgeItem(item);
+      setSelectedItem(null);
+    }
+  }, [allItems, addLog]);
+
+  // 执行强化
+  const handleEnhance = useCallback(async () => {
+    if (!forgeItem || isEnhancing) return;
+    
+    const cost = getEnhanceCost(forgeItem.level);
+    if (gold < cost) {
+      addLog(`💰 金币不足！强化需要 ${cost} 金币`, 'fail');
+      return;
+    }
+
+    // 保存强化前的状态
+    setPrevForgeItem({ ...forgeItem });
+
+    setIsEnhancing(true);
+    setShowResult(false);
+    setEnhanceResult(null);
+    setWaitingForResult(true);
+
+    // 执行强化
+    await enhanceItem(forgeItem);
+    
+    // 动画效果 - 约1秒
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    setIsEnhancing(false);
+    // 注意：不在这里设置结果，等待 useEffect 检测
+  }, [forgeItem, isEnhancing, gold, getEnhanceCost, enhanceItem, addLog]);
+
+  // 监听强化结果
+  useEffect(() => {
+    // 只在等待结果且动画结束后检测
+    if (waitingForResult && !isEnhancing && prevForgeItem) {
+      // 查找更新后的装备
+      const updatedItem = allItems.find(i => i.id === prevForgeItem.id);
+      
+      if (!updatedItem) {
+        // 装备被移除（损坏）
+        setEnhanceResult('broken');
+        setShowResult(true);
+        setForgeItem(null);
+        setPrevForgeItem(null);
+        setWaitingForResult(false);
+        setTimeout(() => setShowResult(false), 3000);
+      } else if (updatedItem.level > prevForgeItem.level) {
+        // 强化成功
+        setForgeItem(updatedItem);
+        setEnhanceResult('success');
+        setShowResult(true);
+        setPrevForgeItem(null);
+        setWaitingForResult(false);
+        setTimeout(() => setShowResult(false), 3000);
+      } else if (updatedItem.level === prevForgeItem.level && !updatedItem.isBroken) {
+        // 强化失败但未损坏
+        setForgeItem(updatedItem);
+        setEnhanceResult('fail');
+        setShowResult(true);
+        setPrevForgeItem(null);
+        setWaitingForResult(false);
+        setTimeout(() => setShowResult(false), 3000);
+      }
+    }
+  }, [allItems, prevForgeItem, isEnhancing, waitingForResult]);
+
+  // 取消放入
+  const handleCancel = useCallback(() => {
+    setForgeItem(null);
+    setShowResult(false);
+    setEnhanceResult(null);
+  }, []);
+
+  return (
+    <div className={styles.forgeContent}>
+      {/* 左侧：装备列表 */}
+      <section className={styles.forgeInventory}>
+        <h2>🎒 所有装备 <span>({allItems.length})</span></h2>
+        <p className={styles.forgeInventoryHint}>双击或拖拽装备到右侧强化炉</p>
+        <div className={styles.forgeInventoryGrid}>
+          {allItems.map((item) => (
+            <div
+              key={item.id}
+              className={`${styles.forgeInventoryItem} ${styles[`quality_${item.quality}`]} ${isItemEquipped(item) ? styles.equipped : ''} ${forgeItem?.id === item.id ? styles.inForge : ''}`}
+              onClick={() => setSelectedItem(selectedItem?.id === item.id ? null : item)}
+              onDoubleClick={() => handleItemDoubleClick(item)}
+              onDragStart={(e) => handleDragStart(e, item)}
+              onDragEnd={handleDragEnd}
+              draggable
+            >
+              {isItemEquipped(item) && <div className={styles.equippedBadge} />}
+              <div className={styles.itemIcon} style={{ borderColor: QualityColors[item.quality] }}>
+                {SlotIcons[item.slot]}
+              </div>
+              <span className={`${styles.itemLevel} ${getEnhanceClass(item.level)}`}>+{item.level}</span>
+              {item.isBroken && <div className={styles.brokenBadge}>💔</div>}
+            </div>
+          ))}
+          {allItems.length === 0 && (
+            <div className={styles.inventoryEmpty}>暂无装备</div>
+          )}
+        </div>
+      </section>
+
+      {/* 中间：强化炉 */}
+      <section className={styles.forgeMain}>
+        <h2>🔨 强化炉</h2>
+        <div
+          ref={forgeRef}
+          className={`${styles.forgeFurnace} ${isEnhancing ? styles.enhancing : ''} ${showResult ? styles.showResult : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* 火焰动画 */}
+          <div className={styles.forgeFlameContainer}>
+            <div className={`${styles.forgeFlame} ${isEnhancing ? styles.active : ''}`}></div>
+            <div className={`${styles.forgeFlame} ${styles.flame2} ${isEnhancing ? styles.active : ''}`}></div>
+            <div className={`${styles.forgeFlame} ${styles.flame3} ${isEnhancing ? styles.active : ''}`}></div>
+          </div>
+          
+          {forgeItem ? (
+            <div className={styles.forgeItemDisplay}>
+              <div className={styles.forgeItemIcon} style={{ borderColor: QualityColors[forgeItem.quality] }}>
+                {SlotIcons[forgeItem.slot]}
+              </div>
+              <div 
+                className={styles.forgeItemName}
+                style={{ color: QualityColors[forgeItem.quality] }}
+              >
+                {forgeItem.name || `${QualityNames[forgeItem.quality]}${SlotNames[forgeItem.slot]}`}
+              </div>
+              <div className={`${styles.forgeItemLevel} ${getEnhanceClass(forgeItem.level)}`}>
+                +{forgeItem.level}
+              </div>
+              {forgeItem.isBroken && <div className={styles.forgeItemBroken}>💔 已损坏</div>}
+            </div>
+          ) : (
+            <div className={styles.forgePlaceholder}>
+              <div className={styles.forgePlaceholderIcon}>⚒️</div>
+              <p>将装备拖入此处</p>
+              <p className={styles.forgePlaceholderSub}>或双击装备选择</p>
+            </div>
+          )}
+
+          {/* 强化结果提示 */}
+          {showResult && (
+            <div className={`${styles.forgeResult} ${enhanceResult === 'success' ? styles.resultSuccess : enhanceResult === 'broken' ? styles.resultBroken : styles.resultFail}`}>
+              {enhanceResult === 'success' && (
+                <>
+                  <div className={styles.resultIcon}>✨</div>
+                  <div className={styles.resultText}>恭喜你，强化成功+1！</div>
+                </>
+              )}
+              {enhanceResult === 'fail' && (
+                <>
+                  <div className={styles.resultIcon}>😔</div>
+                  <div className={styles.resultText}>可惜了，强化失败！</div>
+                </>
+              )}
+              {enhanceResult === 'broken' && (
+                <>
+                  <div className={styles.resultIcon}>💔</div>
+                  <div className={styles.resultText}>不好了，装备破碎了！</div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 强化信息面板 */}
+        {forgeItem && (
+          <div className={styles.forgeInfoPanel}>
+            <div className={styles.forgeItemStats}>
+              <div className={styles.affixList}>
+                <div className={styles.mainAffix}>
+                  ★ {formatStat(forgeItem.mainAffix.stat, forgeItem.mainAffix.value)}
+                </div>
+                {forgeItem.subAffixes.map((affix, i) => (
+                  <div key={i} className={styles.subAffix}>
+                    ○ {formatStat(affix.stat, affix.value)}
+                    {affix.upgradeCount && <span className={styles.upgradeStars}>{'☆'.repeat(affix.upgradeCount)}</span>}
+                  </div>
+                ))}
+                {forgeItem.equipLevel && forgeItem.equipLevel > 1 && (
+                  <div className={styles.affixListFooter}>
+                    <span className={styles.equipLevelBadge}>Lv.{forgeItem.equipLevel}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className={styles.forgeCostInfo}>
+              <div className={styles.forgeCostRow}>
+                <span className={styles.forgeCostLabel}>当前等级</span>
+                <span className={`${styles.forgeCostValue} ${getEnhanceClass(forgeItem.level)}`}>+{forgeItem.level}</span>
+              </div>
+              <div className={styles.forgeCostRow}>
+                <span className={styles.forgeCostLabel}>强化费用</span>
+                <span className={styles.forgeCostValue}>💰 {getEnhanceCost(forgeItem.level)}</span>
+              </div>
+              <div className={styles.forgeCostRow}>
+                <span className={styles.forgeCostLabel}>成功率</span>
+                <span className={styles.forgeCostValue}>
+                  {forgeItem.level <= 0 ? '100%' : 
+                   forgeItem.level <= 9 ? `${Math.max(55, 95 - forgeItem.level * 4)}%` :
+                   `${Math.max(3, 50 - (forgeItem.level - 10) * 5)}%`}
+                </span>
+              </div>
+              {forgeItem.level >= 10 && !forgeItem.isBroken && (
+                <div className={styles.forgeWarning}>
+                  ⚠️ +10以上失败有{Math.min(70, 5 + (forgeItem.level - 10) * 7)}%几率装备破碎
+                </div>
+              )}
+            </div>
+
+            <div className={styles.forgeActions}>
+              <button
+                className={`${styles.btn} ${styles.btnSuccess} ${styles.btnLarge}`}
+                onClick={handleEnhance}
+                disabled={isEnhancing || forgeItem.isBroken || forgeItem.level >= 21 || gold < getEnhanceCost(forgeItem.level)}
+              >
+                {isEnhancing ? '⚡ 强化中...' : `🔨 强化 (${getEnhanceCost(forgeItem.level)}💰)`}
+              </button>
+              <button
+                className={`${styles.btn} ${styles.btnCancel}`}
+                onClick={handleCancel}
+                disabled={isEnhancing}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 右侧：选中装备详情 */}
+      <section className={styles.forgeDetail}>
+        <h2>📋 装备详情</h2>
+        {selectedItem ? (
+          <div className={styles.itemDetail}>
+            <div className={styles.itemHeader}>
+              <div className={styles.itemTitleRow}>
+                <span style={{ color: QualityColors[selectedItem.quality] }}>
+                  {selectedItem.name || `${QualityNames[selectedItem.quality]}${SlotNames[selectedItem.slot]}`}
+                </span>
+                <span className={`${styles.enhanceLevel} ${getEnhanceClass(selectedItem.level)}`}>
+                  +{selectedItem.level}
+                </span>
+              </div>
+              <span 
+                className={styles.qualityBadge}
+                style={{ background: QualityColors[selectedItem.quality] }}
+              >
+                {QualityNames[selectedItem.quality]}
+              </span>
+            </div>
+            <div className={styles.affixList}>
+              <div className={styles.mainAffix}>
+                ★ {formatStat(selectedItem.mainAffix.stat, selectedItem.mainAffix.value)}
+              </div>
+              {selectedItem.subAffixes.map((affix, i) => (
+                <div key={i} className={styles.subAffix}>
+                  ○ {formatStat(affix.stat, affix.value)}
+                  {affix.upgradeCount && <span className={styles.upgradeStars}>{'☆'.repeat(affix.upgradeCount)}</span>}
+                </div>
+              ))}
+              {selectedItem.equipLevel && selectedItem.equipLevel > 1 && (
+                <div className={styles.affixListFooter}>
+                  <span className={styles.equipLevelBadge}>Lv.{selectedItem.equipLevel}</span>
+                </div>
+              )}
+            </div>
+            {selectedItem.isBroken && (
+              <div className={styles.tooltipBroken}>💔 已损坏</div>
+            )}
+            <div className={styles.forgeDetailActions}>
+              <button
+                className={`${styles.btn} ${styles.btnPrimary}`}
+                onClick={() => {
+                  if (!selectedItem.isBroken && selectedItem.level < 21) {
+                    setForgeItem(selectedItem);
+                    setSelectedItem(null);
+                  }
+                }}
+                disabled={selectedItem.isBroken || selectedItem.level >= 21}
+              >
+                放入强化炉
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.forgeDetailPlaceholder}>
+            <div className={styles.forgeDetailPlaceholderIcon}>🔍</div>
+            <p>点击左侧装备查看详情</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function BattleView({ battle, playerAttack, useSkill, endBattle, playerHp, playerMaxHp }: BattleViewProps) {
