@@ -363,116 +363,94 @@ function calculateExpectedDamage(atk, def, critRate = 0, critDmg = 50, skillPerc
 }
 
 /**
- * 怪物平衡配置
- * 定义每种类型怪物的战斗特性
- * 
- * 普通怪：玩家3回合击杀，每回合造成玩家10%血量伤害
- * 精英：玩家5回合击杀，每回合造成玩家15%血量伤害
- * 小Boss：玩家7回合击杀（使用技能），每回合造成玩家10%血量伤害
- * Boss：玩家10回合击杀（使用技能），每回合造成玩家12%血量伤害
+ * 怪物基础属性配置
+ * 每种类型有独立的基础属性和成长系数
  */
-const MONSTER_BALANCE = {
+const MONSTER_BASE_STATS = {
     normal: {
-        targetRounds: 3,
-        damageRatio: 0.10,
-        hpRounds: 3
+        baseHp: 100,
+        baseAtk: 15,
+        baseDef: 5,
+        baseSpd: 10,
+        // 每等级成长
+        hpPerLevel: 20,
+        atkPerLevel: 3,
+        defPerLevel: 2,
+        spdPerLevel: 1,
     },
     elite: {
-        targetRounds: 5,
-        damageRatio: 0.15,
-        hpRounds: 5
+        baseHp: 200,
+        baseAtk: 25,
+        baseDef: 10,
+        baseSpd: 15,
+        hpPerLevel: 35,
+        atkPerLevel: 5,
+        defPerLevel: 3,
+        spdPerLevel: 1.5,
     },
     miniboss: {
-        targetRounds: 7,
-        damageRatio: 0.10,
-        hpRounds: 7
+        baseHp: 500,
+        baseAtk: 40,
+        baseDef: 20,
+        baseSpd: 20,
+        hpPerLevel: 60,
+        atkPerLevel: 8,
+        defPerLevel: 5,
+        spdPerLevel: 2,
     },
     boss: {
-        targetRounds: 10,
-        damageRatio: 0.12,
-        hpRounds: 10
+        baseHp: 1000,
+        baseAtk: 60,
+        baseDef: 30,
+        baseSpd: 25,
+        hpPerLevel: 100,
+        atkPerLevel: 12,
+        defPerLevel: 8,
+        spdPerLevel: 3,
     }
 };
 
 /**
- * 计算怪物属性
+ * 计算怪物属性（独立成长系统）
  * @param {string} monsterType - 怪物类型
  * @param {number} monsterLevel - 怪物等级
- * @param {object} targetPlayerStats - 目标玩家属性（用于计算怪物强度）
+ * @returns {object} 怪物属性
  */
-function calculateMonsterStats(monsterType, monsterLevel, targetPlayerStats) {
-    const balance = MONSTER_BALANCE[monsterType] || MONSTER_BALANCE.normal;
+function calculateMonsterStats(monsterType, monsterLevel) {
+    const config = MONSTER_BASE_STATS[monsterType] || MONSTER_BASE_STATS.normal;
     
-    // 怪物防御（基础值 + 等级加成）
-    const baseMonsterDef = 10 + monsterLevel * 3;
+    // 基础属性 + 等级成长
+    let hp = config.baseHp + Math.floor(config.hpPerLevel * monsterLevel);
+    let atk = config.baseAtk + Math.floor(config.atkPerLevel * monsterLevel);
+    let def = config.baseDef + Math.floor(config.defPerLevel * monsterLevel);
+    let spd = config.baseSpd + Math.floor(config.spdPerLevel * monsterLevel);
     
-    // 怪物基础血量（基于等级）
-    const baseHpByLevel = monsterLevel * (monsterType === 'boss' ? 50 : monsterType === 'miniboss' ? 35 : monsterType === 'elite' ? 25 : 15);
-    
-    // 玩家对怪物的伤害（用于参考）
-    const playerDmg = calculateExpectedDamage(
-        targetPlayerStats.atk,
-        baseMonsterDef,
-        targetPlayerStats.critRate,
-        targetPlayerStats.critDmg
-    );
-    
-    // 怪物血量 = max(基础血量, 玩家伤害 * 回合数)
-    // 确保怪物血量至少能撑几个回合
-    const hpByPlayerDmg = Math.floor(playerDmg.avg * balance.hpRounds);
-    const monsterHp = Math.max(baseHpByLevel, hpByPlayerDmg);
-    
-    // 怪物攻击力 = 每回合造成玩家预期血量的X%伤害
-    const targetDamagePerRound = targetPlayerStats.maxHp * balance.damageRatio;
-    const playerDefReduction = calculateDefReduction(targetPlayerStats.def);
-    const monsterAtk = Math.floor(targetDamagePerRound / playerDefReduction);
+    // 加入随机性 (±15%)
+    const randomFactor = () => 0.85 + Math.random() * 0.30;
+    hp = Math.floor(hp * randomFactor());
+    atk = Math.floor(atk * randomFactor());
+    def = Math.floor(def * randomFactor());
+    spd = Math.floor(spd * randomFactor());
     
     return {
-        maxHp: monsterHp,
-        atk: monsterAtk,
-        def: baseMonsterDef
+        maxHp: hp,
+        atk: atk,
+        def: def,
+        spd: spd
     };
 }
 
 /**
  * 获取地图怪物的属性
  * 
- * @param {number} mapId - 地图ID
+ * @param {number} mapId - 地图ID（用于日志）
  * @param {string} monsterType - 怪物类型 (normal/elite/miniboss/boss)
  * @param {number} monsterLevel - 怪物等级
  * @returns {object} 怪物属性
  */
 function getMonsterStatsForMap(mapId, monsterType, monsterLevel) {
-    const config = MAP_BALANCE_CONFIG[mapId] || MAP_BALANCE_CONFIG[1];
-    
-    // 根据怪物类型选择目标玩家阶段
-    // 普通怪：用early阶段属性（玩家刚进地图能打）
-    // 精英：用mid阶段属性（玩家打完一半小怪后能打）
-    // Boss/MiniBoss：用final阶段属性（玩家地图毕业才能打）
-    let targetStage;
-    switch (monsterType) {
-        case 'normal':
-            targetStage = config.early;
-            break;
-        case 'elite':
-            targetStage = config.mid;
-            break;
-        case 'miniboss':
-        case 'boss':
-            targetStage = config.final;
-            break;
-        default:
-            targetStage = config.early;
-    }
-    
-    const targetPlayerStats = calculateExpectedPlayerStats(
-        targetStage.playerLevel,
-        targetStage.equipLevel,
-        targetStage.enhanceLevel,
-        targetStage.quality
-    );
-    
-    return calculateMonsterStats(monsterType, monsterLevel, targetPlayerStats);
+    // 直接使用独立成长系统，不再依赖玩家属性
+    return calculateMonsterStats(monsterType, monsterLevel);
 }
 
 /**
@@ -569,7 +547,7 @@ module.exports = {
     calculateDefReduction,
     simulateBattle,
     MAP_BALANCE_CONFIG,
-    MONSTER_BALANCE,
+    MONSTER_BASE_STATS,
     DEF_CONSTANT,
     printBalanceDebug
 };
