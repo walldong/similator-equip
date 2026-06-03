@@ -1,32 +1,13 @@
 /**
- * Express 服务器 - 使用 MySQL + Redis
+ * Express 服务器 - MySQL + Redis + WebSocket
  */
 
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-
-// 配置
-const config = {
-  // 数据库配置
-  dbType: process.env.DB_TYPE || 'mysql',
-  mysql: {
-    host: process.env.MYSQL_HOST || 'localhost',
-    port: parseInt(process.env.MYSQL_PORT || '3306'),
-    user: process.env.MYSQL_USER || 'game',
-    password: process.env.MYSQL_PASSWORD || 'game123456',
-    database: process.env.MYSQL_DATABASE || 'game',
-    connectionLimit: 10,
-  },
-  // Redis 配置
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    password: process.env.REDIS_PASSWORD || '',
-  },
-  // 服务器配置
-  port: parseInt(process.env.PORT || '3001'),
-};
+const http = require('http');
+const WebSocket = require('ws');
+const config = require('./config');
 
 // 导入游戏逻辑和服务
 const GameLogic = require('./gameLogic');
@@ -35,11 +16,89 @@ const { createCache } = require('./cache-redis');
 
 // 初始化
 const app = express();
+const server = http.createServer(app);
 let db, cache;
+
+// WebSocket 服务器
+let wss;
+const connectedClients = new Map(); // userId -> Set of WebSocket
+
+// 广播消息给所有在线用户
+function broadcastMessage(message) {
+  if (!wss) return;
+  
+  const data = JSON.stringify(message);
+  let sentCount = 0;
+  
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+      sentCount++;
+    }
+  });
+  
+  console.log(`[广播] 发送给 ${sentCount} 个在线用户: ${message.type}`);
+}
+
+// 生成强化广播文案
+function getEnhanceBroadcastMessages(username, level, equipName) {
+  if (level === 12) {
+    return [
+      `恭喜【${username}】将【${equipName}】强化到了+${level}，这把武器已经可以毁天灭地了！`,
+      `天降神光！【${username}】成功将【${equipName}】强化至+${level}，屠龙宝刀就在眼前！`,
+      `众神惊呼！【${username}】的【${equipName}】突破+${level}大关，人间神器就此诞生！`,
+      `江湖震动！【${username}】将【${equipName}】强化到+${level}，各路英雄纷纷侧目！`,
+      `传说成真！【${username}】的【${equipName}】达到+${level}，已经可以挑战神明！`,
+    ];
+  } else if (level === 15) {
+    return [
+      `神迹降临！【${username}】将【${equipName}】强化到+${level}，这已经不是凡间该有的力量了！`,
+      `天神下凡！【${username}】的【${equipName}】达到+${level}，整个世界都为之颤抖！`,
+      `传奇诞生！【${username}】成功将【${equipName}】强化至+${level}，此等神兵万年难遇！`,
+      `宇宙震动！【${username}】的【${equipName}】突破+${level}，就连创世神都感到恐惧！`,
+    ];
+  } else if (level === 18) {
+    return [
+      `时空裂缝！【${username}】将【${equipName}】强化到+${level}，这把武器已经超越了维度的限制！`,
+      `命运改写！【${username}】的【${equipName}】达到+${level}，整个宇宙的命运已在其掌控之中！`,
+      `创世神器！【${username}】成功将【${equipName}】强化至+${level}，此等神兵足以重铸世界！`,
+    ];
+  } else if (level === 21) {
+    return [
+      `终极奥义！【${username}】将【${equipName}】强化到+${level}满级，已然成为超越神明的存在！`,
+      `世界之巅！【${username}】的【${equipName}】达到+${level}满级，这是凡人所能触及的终极力量！`,
+      `传说终结！【${username}】成功将【${equipName}】强化至+${level}满级，新的神话就此开始！`,
+      `万古流芳！【${username}】的【${equipName}】突破极限达到+${level}，此等壮举将被载入史册！`,
+    ];
+  } else if (level > 12) {
+    return [
+      `不可思议！【${username}】将【${equipName}】强化到+${level}，神魔皆惊！`,
+      `惊叹连连！【${username}】的【${equipName}】突破+${level}，此等壮举世间罕见！`,
+      `众神赞叹！【${username}】成功将【${equipName}】强化至+${level}，凡人之躯比肩神明！`,
+    ];
+  }
+  return [];
+}
+
+// 生成掉落广播文案
+function getDropBroadcastMessages(username, monsterName, equipName) {
+  return [
+    `恭喜【${username}】经过艰苦奋战击败了【${monsterName}】，在弥留之际它交出了神话级的【${equipName}】！`,
+    `天降奇珍！【${username}】成功从【${monsterName}】身上摸出了神话级的【${equipName}】，此乃天命所归！`,
+    `奇迹降临！【${username}】在击败【${monsterName}】后，一道金光闪过，神话级【${equipName}】落入囊中！`,
+    `宿命之遇！【${username}】与【${monsterName}】激战三百回合，终于获得其守护千年的神话级【${equipName}】！`,
+    `传说成真！【${username}】成功从【${monsterName}】的宝库中夺得神话级【${equipName}】，此乃王者之器！`,
+    `神明眷顾！【${username}】击败【${monsterName}】后，天降祥瑞，神话级【${equipName}】应运而生！`,
+    `龙争虎斗！【${username}】与【${monsterName}】斗智斗勇，最终获得神话级【${equipName}】，荣耀属于勇者！`,
+    `命运之轮转动！【${username}】战胜【${monsterName}】后，获得了传说中的神话级【${equipName}】！`,
+    `天地变色！【${username}】从【${monsterName}】身上获得神话级【${equipName}】，众生膜拜！`,
+    `史诗时刻！【${username}】历经千辛万苦，终于从【${monsterName}】手中夺得神话级【${equipName}】！`,
+  ];
+}
 
 // 中间件
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));  // 增大限制以支持大地图数据
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ==================== 数据库和缓存初始化 ====================
@@ -52,7 +111,7 @@ async function initialize() {
   // 初始化数据库
   db = createDatabase(config.mysql);
   await db.initTables();
-  console.log(`[DB] ${config.dbType.toUpperCase()} 连接成功`);
+  console.log('[DB] MySQL 连接成功');
 
   // 初始化缓存
   cache = createCache(config.redis);
@@ -97,7 +156,7 @@ async function getUserFullData(userId) {
     }
   }
 
-  const stats = GameLogic.calculateTotalStats(user.level, Object.values(equippedItems).filter(e => e));
+  const stats = GameLogic.calculateTotalStats(user.level, Object.values(equippedItems).filter(e => e)) || { atk: 50, def: 30, spd: 20, critRate: 0, critDmg: 0, maxHp: 200 };
 
   return { user, equipments, equippedItems, inventory, stats };
 }
@@ -330,6 +389,23 @@ app.post('/api/equipment/enhance', async (req, res) => {
       await db.updateUser(userId, { gold: userGold - cost });
       await invalidateUserCache(userId);
       console.log(`[强化] 用户 ${user.username} 装备强化成功 +${result.newItem.level},消耗 ${cost} 金币`);
+      
+      // 强化到12级及以上时发送世界广播
+      if (result.newItem.level >= 12) {
+        const equipName = equipment.name || `${GameLogic.QUALITY_NAMES[equipment.quality]}${GameLogic.SLOT_NAMES[equipment.slot]}`;
+        const messages = getEnhanceBroadcastMessages(user.username, result.newItem.level, equipName);
+        if (messages.length > 0) {
+          const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+          broadcastMessage({
+            type: 'broadcast',
+            broadcastType: 'enhance',
+            username: user.username,
+            message: randomMessage,
+            items: [{ name: equipName, quality: equipment.quality }],
+            timestamp: Date.now()
+          });
+        }
+      }
     }
 
     res.json({
@@ -832,15 +908,37 @@ app.post('/api/battle/end', async (req, res) => {
       const rewards = battle.rewards || GameLogic.calculateBattleRewards(battle.monsterType, battle.monsterLevel);
       const levelResult = GameLogic.processLevelUp(user.level, user.exp, rewards.exp);
 
+      // 击败怪物后恢复30%最大生命值
+      const healAmount = Math.floor(battle.playerMaxHp * 0.3);
+      const newHp = Math.min(battle.playerMaxHp, battle.playerHp + healAmount);
+
       await db.updateUser(user.id, {
         level: levelResult.level,
         exp: levelResult.exp,
         gold: user.gold + rewards.gold,
-        current_hp: battle.playerHp
+        current_hp: newHp
       });
 
       for (const item of rewards.items) {
         await db.createEquipment(user.id, { ...item, equipped: false });
+      }
+
+      // 检查是否获得神话装备，发送世界广播
+      const mythicItems = rewards.items.filter(item => item.quality === 'mythic');
+      if (mythicItems.length > 0) {
+        mythicItems.forEach(item => {
+          const equipName = item.name || '神话装备';
+          const messages = getDropBroadcastMessages(user.username, battle.monsterName || '未知怪物', equipName);
+          const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+          broadcastMessage({
+            type: 'broadcast',
+            broadcastType: 'drop',
+            username: user.username,
+            message: randomMessage,
+            items: [{ name: equipName, quality: 'mythic' }],
+            timestamp: Date.now()
+          });
+        });
       }
 
       await invalidateUserCache(user.id);
@@ -849,6 +947,7 @@ app.post('/api/battle/end', async (req, res) => {
 
       responseData = {
         victory: true,
+        healAmount,
         rewards: {
           exp: rewards.exp,
           gold: rewards.gold,
@@ -859,7 +958,7 @@ app.post('/api/battle/end', async (req, res) => {
           level: levelResult.level,
           exp: levelResult.exp,
           gold: user.gold + rewards.gold,
-          currentHp: battle.playerHp,
+          currentHp: newHp,
           maxHp: userData.stats.maxHp,
           stats: userData.stats,
           inventory: userData.inventory,
@@ -869,7 +968,7 @@ app.post('/api/battle/end', async (req, res) => {
         monsterCellY: battle.monsterCellY
       };
 
-      console.log(`[战斗] 用户 ${user.username} 胜利 获得 ${rewards.exp}经验 ${rewards.gold}金币 ${rewards.items.length}装备`);
+      console.log(`[战斗] 用户 ${user.username} 胜利 获得 ${rewards.exp}经验 ${rewards.gold}金币 ${rewards.items.length}装备 恢复${healAmount}生命值`);
     } else {
       // 战斗失败,恢复到战斗前的血量
       const originalHp = battle.originalPlayerHp || battle.playerMaxHp;
@@ -1177,12 +1276,20 @@ app.post('/api/worldmap/generate', async (req, res) => {
   try {
     const { userId, level, mapId } = req.body;
 
+    console.log(`[地图生成请求] userId=${userId}, level=${level}`);
+
     if (!userId) {
       return res.status(400).json({ success: false, message: '缺少用户ID' });
     }
 
     const user = await validateUser(userId);
-    const playerLevel = level || user?.level || 1;
+    console.log(`[地图生成] 查询用户结果:`, user ? `id=${user.id}, name=${user.username}` : 'null');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在，请先登录' });
+    }
+
+    const playerLevel = level || user.level || 1;
 
     // 根据玩家等级确定地图ID(如果没有指定)
     const { getCurrentMap, getMapConfig } = require('./mapConfig');
@@ -1213,6 +1320,51 @@ app.post('/api/worldmap/generate', async (req, res) => {
   }
 });
 
+// 重新开始当前地图
+app.post('/api/worldmap/restart', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: '缺少用户ID' });
+    }
+
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
+    // 获取当前地图ID
+    const state = await db.getGameState(userId);
+    const currentMapId = state?.mapData?.mapId || 1;
+
+    const { getMapConfig } = require('./mapConfig');
+    const { generateMap } = require('./mapGenerator');
+
+    const gameMap = generateMap(currentMapId, user.level);
+
+    // 保存新地图
+    await db.saveGameState(userId, gameMap, gameMap.player.cellX, gameMap.player.cellY);
+
+    const mapConfig = getMapConfig(currentMapId);
+    console.log(`[地图重置] 用户 ${user.username} 重新开始地图 ${mapConfig.name}`);
+
+    res.json({
+      success: true,
+      data: gameMap,
+      mapInfo: {
+        id: mapConfig.id,
+        name: mapConfig.name,
+        levelRange: mapConfig.levelRange,
+      },
+      message: `重新开始 ${mapConfig.name}`
+    });
+  } catch (error) {
+    console.error('[地图重置错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
 // ==================== 兼容旧 API ====================
 
 app.post('/api/save', async (req, res) => {
@@ -1221,6 +1373,426 @@ app.post('/api/save', async (req, res) => {
 
 app.post('/api/equipments/save', (req, res) => {
   res.status(403).json({ success: false, message: '此接口已禁用,请使用游戏API' });
+});
+
+// ==================== 自动战斗 API ====================
+
+// 自动战斗配置存储（简化版，实际应该存数据库）
+const autoBattleConfigs = new Map();
+
+// 获取自动战斗配置
+app.get('/api/auto-battle/config/:userId', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const config = autoBattleConfigs.get(userId) || {
+      enabled: false,
+      skipFinalBoss: false, // 默认不跳过最终Boss，打完Boss才停止
+      autoSellQualities: ['normal', 'rare'],
+      minHpPercent: 30,
+      battleInterval: 500,
+    };
+    res.json({ success: true, data: config });
+  } catch (error) {
+    console.error('[获取自动战斗配置错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 设置自动战斗配置
+app.post('/api/auto-battle/config', async (req, res) => {
+  try {
+    const { userId, config } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ success: false, message: '缺少用户ID' });
+    }
+    
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+    
+    // 合并默认配置
+    const defaultConfig = {
+      enabled: false,
+      skipFinalBoss: false, // 默认不跳过最终Boss
+      autoSellQualities: ['normal', 'rare'],
+      minHpPercent: 30,
+      battleInterval: 500,
+    };
+    
+    const finalConfig = { ...defaultConfig, ...config };
+    autoBattleConfigs.set(userId, finalConfig);
+    
+    console.log(`[自动战斗配置] 用户 ${user.username} 设置:`, finalConfig);
+    
+    res.json({ success: true, data: finalConfig });
+  } catch (error) {
+    console.error('[设置自动战斗配置错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 执行一次自动战斗（查找最近的怪物并战斗）
+app.post('/api/auto-battle/execute', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ success: false, message: '缺少用户ID' });
+    }
+    
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+    
+    // 获取地图数据
+    const state = await db.getGameState(userId);
+    if (!state || !state.mapData || !state.mapData.cells) {
+      return res.json({ success: false, message: '没有地图数据', needMap: true });
+    }
+    
+    const gameMap = state.mapData;
+    const config = autoBattleConfigs.get(userId) || {
+      enabled: false,
+      skipFinalBoss: true,
+      autoSellQualities: ['normal', 'rare'],
+      minHpPercent: 30,
+      battleInterval: 500,
+    };
+    
+    // 检查血量是否足够
+    const userData = await getUserFullData(userId);
+    const hpPercent = (user.current_hp / userData.stats.maxHp) * 100;
+    if (hpPercent < config.minHpPercent) {
+      return res.json({ 
+        success: false, 
+        message: `血量不足 (${hpPercent.toFixed(1)}% < ${config.minHpPercent}%)`, 
+        needHeal: true,
+        hpPercent,
+      });
+    }
+    
+    // 寻找最近的怪物（使用BFS）
+    const playerX = gameMap.player.cellX;
+    const playerY = gameMap.player.cellY;
+    const cells = gameMap.cells;
+    
+    let nearestEntity = null;
+    let nearestDistance = Infinity;
+    let nearestCellX = playerX;
+    let nearestCellY = playerY;
+    
+    // BFS搜索最近的怪物
+    const visited = new Set();
+    const queue = [[playerX, playerY, 0]];
+    visited.add(`${playerX},${playerY}`);
+    
+    const maxSearchRadius = Math.max(gameMap.width, gameMap.height); // 扩大搜索范围到全地图
+    
+    while (queue.length > 0) {
+      const [x, y, dist] = queue.shift();
+      
+      if (dist > maxSearchRadius) continue;
+      
+      const cell = cells[y]?.[x];
+      if (cell && cell.entity && !cell.entity.defeated) {
+        const entity = cell.entity;
+        
+        // 跳过最终Boss（如果配置了skipFinalBoss）
+        if (config.skipFinalBoss && entity.isFinalBoss) {
+          continue;
+        }
+        
+        // 跳过宝箱
+        if (entity.type === 'chest') {
+          continue;
+        }
+        
+        // 检查是否是实体的左上角格子
+        const idParts = entity.id.split('_');
+        let startX, startY;
+        
+        if (entity.isMiniBoss) {
+          startX = parseInt(idParts[2]);
+          startY = parseInt(idParts[3]);
+        } else if (entity.isFinalBoss) {
+          startX = parseInt(idParts[1]);
+          startY = parseInt(idParts[2]);
+        } else {
+          startX = parseInt(idParts[1]);
+          startY = parseInt(idParts[2]);
+        }
+        
+        if (x === startX && y === startY) {
+          nearestEntity = entity;
+          nearestDistance = dist;
+          nearestCellX = x;
+          nearestCellY = y;
+          break; // 找到最近的就停止
+        }
+      }
+      
+      // 向四周扩展
+      const directions = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上、下、左、右
+      for (const [dx, dy] of directions) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const key = `${nx},${ny}`;
+        
+        if (!visited.has(key) && nx >= 0 && nx < gameMap.width && ny >= 0 && ny < gameMap.height) {
+          visited.add(key);
+          const nextCell = cells[ny]?.[nx];
+          if (nextCell && (nextCell.walkable || (nextCell.entity && !nextCell.entity.defeated))) {
+            queue.push([nx, ny, dist + 1]);
+          }
+        }
+      }
+    }
+    
+    if (!nearestEntity) {
+      // 检查是否还有任何未击败的怪物（包括Boss）
+      let hasAnyMonster = false;
+      let hasFinalBoss = false;
+      let finalBossDefeated = gameMap.finalBossDefeated || false;
+      
+      for (let y = 0; y < cells.length; y++) {
+        for (let x = 0; x < cells[y].length; x++) {
+          const cell = cells[y][x];
+          if (cell.entity && !cell.entity.defeated && cell.entity.type !== 'chest') {
+            hasAnyMonster = true;
+            if (cell.entity.isFinalBoss) {
+              hasFinalBoss = true;
+            }
+          }
+        }
+      }
+      
+      // 如果最终Boss已被击败，地图清理完成
+      if (finalBossDefeated || (gameMap.finalBossSpawned && !hasFinalBoss)) {
+        return res.json({ 
+          success: false, 
+          message: '地图已完全清理，最终Boss已被击败！', 
+          mapCleared: true,
+          finalBossDefeated: true,
+        });
+      }
+      
+      // 如果没有任何怪物了，但最终Boss还没击败（可能是bug或特殊情况）
+      if (!hasAnyMonster) {
+        return res.json({ 
+          success: false, 
+          message: '地图已探索完毕，没有更多怪物', 
+          mapExplored: true,
+        });
+      }
+      
+      // 如果有最终Boss但被跳过了（配置skipFinalBoss=true）
+      if (hasFinalBoss && config.skipFinalBoss) {
+        return res.json({ 
+          success: false, 
+          message: '已跳过最终Boss，地图探索完毕', 
+          mapExplored: true,
+          skippedFinalBoss: true,
+        });
+      }
+      
+      return res.json({ success: false, message: '没有找到可战斗的怪物' });
+    }
+    
+    // 执行战斗
+    const monsterType = nearestEntity.isMiniBoss ? 'boss' : 
+                         nearestEntity.type === 'elite' ? 'elite' : 'normal';
+    const monsterLevel = nearestEntity.level;
+    
+    const playerStats = GameLogic.calculateTotalStats(user.level, Object.values(userData.equippedItems).filter(e => e));
+    
+    // 创建战斗
+    let battle = GameLogic.createBattle(monsterType, monsterLevel, playerStats, playerStats.maxHp, user.current_hp);
+    battle.userId = userId;
+    battle.monsterCellX = nearestCellX;
+    battle.monsterCellY = nearestCellY;
+    battle.playerStats = playerStats;
+    battle.originalPlayerHp = user.current_hp;
+    
+    // 自动战斗直到结束
+    const battleLogs = [];
+    while (battle.monsterHp > 0 && battle.playerHp > 0) {
+      // 选择技能：怒气足够时使用高伤害技能
+      let skillId = null;
+      if (battle.playerRage >= 100) {
+        skillId = 'rage'; // 狂暴 200%伤害
+      } else if (battle.playerRage >= 80) {
+        skillId = 'fatal_strike'; // 致命一击 200%伤害
+      } else if (battle.playerRage >= 50) {
+        skillId = 'whirlwind'; // 旋风斩 100%伤害
+      } else if (battle.playerRage >= 30) {
+        skillId = 'heavy_hit'; // 重击 50%伤害
+      }
+      
+      // 如果血量低，优先治疗
+      const currentHpPercent = (battle.playerHp / battle.playerMaxHp) * 100;
+      if (currentHpPercent < 40 && battle.playerRage >= 40) {
+        // 治疗
+        const healAmount = Math.floor(battle.playerMaxHp * 0.3);
+        battle.playerHp = Math.min(battle.playerMaxHp, battle.playerHp + healAmount);
+        battle.playerRage -= 40;
+        battleLogs.push({ text: `💚 治愈之光恢复了 ${healAmount} 点生命`, type: 'heal' });
+      } else {
+        const result = GameLogic.executeBattleRound(battle, skillId);
+        battleLogs.push(...result.logs);
+      }
+    }
+    
+    const victory = battle.monsterHp <= 0;
+    
+    // 处理战斗结果
+    let responseData = { victory, entity: nearestEntity, cellX: nearestCellX, cellY: nearestCellY };
+    
+    if (victory) {
+      const rewards = GameLogic.calculateBattleRewards(monsterType, monsterLevel);
+      const levelResult = GameLogic.processLevelUp(user.level, user.exp, rewards.exp);
+      
+      // 恢复30%生命
+      const healAmount = Math.floor(battle.playerMaxHp * 0.3);
+      const newHp = Math.min(battle.playerMaxHp, battle.playerHp + healAmount);
+      
+      await db.updateUser(user.id, {
+        level: levelResult.level,
+        exp: levelResult.exp,
+        gold: user.gold + rewards.gold,
+        current_hp: newHp,
+      });
+      
+      // 创建装备
+      for (const item of rewards.items) {
+        await db.createEquipment(user.id, { ...item, equipped: false });
+      }
+      
+      // 更新怪物击败状态
+      const entitySize = nearestEntity.size || 1;
+      const idParts = nearestEntity.id.split('_');
+      let startX, startY;
+      
+      if (nearestEntity.isMiniBoss) {
+        startX = parseInt(idParts[2]);
+        startY = parseInt(idParts[3]);
+      } else if (nearestEntity.isFinalBoss) {
+        startX = parseInt(idParts[1]);
+        startY = parseInt(idParts[2]);
+      } else {
+        startX = parseInt(idParts[1]);
+        startY = parseInt(idParts[2]);
+      }
+      
+      // 标记所有格子为已击败
+      for (let dy = 0; dy < entitySize; dy++) {
+        for (let dx = 0; dx < entitySize; dx++) {
+          const nx = startX + dx;
+          const ny = startY + dy;
+          if (cells[ny]?.[nx]?.entity?.id === nearestEntity.id) {
+            cells[ny][nx].entity.defeated = true;
+            cells[ny][nx].walkable = true;
+          }
+        }
+      }
+      
+      // 更新小Boss进度
+      if (nearestEntity.isMiniBoss) {
+        gameMap.miniBossesDefeated = (gameMap.miniBossesDefeated || 0) + 1;
+        
+        // 检查是否召唤最终Boss
+        if (gameMap.miniBossesDefeated >= gameMap.totalMiniBosses && !gameMap.finalBossSpawned) {
+          const { spawnFinalBoss } = require('./mapGenerator');
+          spawnFinalBoss(cells, gameMap.finalBoss, gameMap.finalBossSpawnX, gameMap.finalBossSpawnY);
+          gameMap.finalBossSpawned = true;
+          responseData.finalBossSpawned = true;
+          responseData.finalBossName = gameMap.finalBoss?.name;
+          console.log(`[自动战斗] 用户 ${user.username} 已召唤最终Boss ${gameMap.finalBoss?.name}!`);
+        }
+      }
+      
+      // 检查是否击败了最终Boss
+      if (nearestEntity.isFinalBoss) {
+        gameMap.finalBossDefeated = true;
+        responseData.finalBossDefeated = true;
+        responseData.mapCleared = true;
+        console.log(`[自动战斗] 用户 ${user.username} 击败了最终Boss ${nearestEntity.name}! 地图通关!`);
+      }
+      
+      // 保存地图
+      await db.saveGameState(userId, gameMap, nearestCellX, nearestCellY);
+      await invalidateUserCache(userId);
+      
+      // 自动售卖配置的装备
+      if (config.autoSellQualities && config.autoSellQualities.length > 0) {
+        const allEquipments = await db.getEquipmentsByUserId(userId);
+        let totalSellPrice = 0;
+        let sellCount = 0;
+        
+        for (const quality of config.autoSellQualities) {
+          const toSell = allEquipments.filter(eq => {
+            if (eq.quality !== quality) return false;
+            if (eq.equipped) return false;
+            if (eq.isBroken) return false;
+            return true;
+          });
+          
+          for (const eq of toSell) {
+            const price = GameLogic.calculateEquipmentPrice(eq);
+            totalSellPrice += price;
+            sellCount++;
+            await db.deleteEquipment(eq.id);
+          }
+        }
+        
+        if (sellCount > 0) {
+          const newGold = (user.gold + rewards.gold) + totalSellPrice;
+          await db.updateUser(userId, { gold: newGold });
+          responseData.autoSold = { count: sellCount, totalPrice: totalSellPrice, qualities: config.autoSellQualities }; 
+        }
+      }
+      
+      const newUserData = await getUserFullData(userId);
+      
+      responseData.rewards = {
+        exp: rewards.exp,
+        gold: rewards.gold,
+        items: rewards.items.length,
+      }; 
+      responseData.levelUps = levelResult.levelUps;
+      responseData.userData = {
+        level: levelResult.level,
+        exp: levelResult.exp,
+        gold: newUserData.user.gold,
+        currentHp: newHp,
+        maxHp: newUserData.stats.maxHp,
+        stats: newUserData.stats,
+        inventory: newUserData.inventory,
+        equippedItems: newUserData.equippedItems,
+      }; 
+      responseData.playerPosition = { cellX: nearestCellX, cellY: nearestCellY }; 
+      responseData.battleLogs = battleLogs.slice(-10); // 只返回最后10条日志
+      
+      console.log(`[自动战斗] 用户 ${user.username} 自动击败 ${nearestEntity.name}，获得 ${rewards.gold}金币 ${rewards.exp}经验`);
+    } else {
+      // 战斗失败
+      const originalHp = battle.originalPlayerHp;
+      await db.updateUser(user.id, { current_hp: originalHp });
+      await invalidateUserCache(userId);
+      
+      responseData.userData = { currentHp: originalHp }; 
+      responseData.battleLogs = battleLogs.slice(-10); 
+      
+      console.log(`[自动战斗] 用户 ${user.username} 自动战斗失败，恢复血量到 ${originalHp}`);
+    }
+    
+    res.json({ success: true, data: responseData });
+  } catch (error) {
+    console.error('[自动战斗错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
 });
 
 // ==================== 健康检查 ====================
@@ -1251,13 +1823,57 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
+// WebSocket 连接端点
+app.get('/ws', (req, res) => {
+  res.json({ 
+    message: 'WebSocket 端点',
+    protocol: 'ws',
+    hint: '请使用 WebSocket 客户端连接'
+  });
+});
+
 // 启动
 initialize().then(() => {
-  app.listen(config.port, () => {
+  // 初始化 WebSocket 服务器
+  wss = new WebSocket.Server({ server });
+  
+  wss.on('connection', (ws, req) => {
+    console.log('[WebSocket] 新客户端连接');
+    
+    ws.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        // 处理客户端消息（如心跳包、认证等）
+        if (message.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }));
+        }
+      } catch (err) {
+        // 忽略无效消息
+      }
+    });
+    
+    ws.on('close', () => {
+      console.log('[WebSocket] 客户端断开连接');
+    });
+    
+    ws.on('error', (err) => {
+      console.error('[WebSocket] 连接错误:', err.message);
+    });
+    
+    // 发送欢迎消息
+    ws.send(JSON.stringify({ 
+      type: 'connected', 
+      message: '已连接到游戏服务器',
+      timestamp: Date.now()
+    }));
+  });
+  
+  server.listen(config.port, () => {
     console.log('');
     console.log('========================================');
     console.log(`  游戏服务器运行中`);
     console.log(`  API: http://localhost:${config.port}`);
+    console.log(`  WebSocket: ws://localhost:${config.port}`);
     console.log(`  健康检查: http://localhost:${config.port}/health`);
     console.log('========================================');
     console.log('');

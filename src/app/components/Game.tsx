@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import useGame, { EquipmentItem, LogEntry, BattleState, SkillData } from '@/lib/useGame';
+import useGame, { EquipmentItem, LogEntry, BattleState, SkillData, BroadcastMessage, BroadcastItem } from '@/lib/useGame';
 import { EquipmentSlot, Quality } from '@/types';
 import { MapCell, GameMap } from '@/types/map';
 import styles from './Game.module.css';
@@ -74,6 +74,27 @@ const MAP_NAMES: Record<number, string> = {
   6: '暗影深渊',
 };
 
+// 背包页签类型
+type InventoryTab = 'all' | 'weapon' | 'armor' | 'accessory';
+
+// 背包页签名称
+const InventoryTabNames: Record<InventoryTab, string> = {
+  all: '全部',
+  weapon: '武器',
+  armor: '护甲',
+  accessory: '首饰',
+};
+
+// 槽位分类
+const SlotCategories: Record<EquipmentSlot, InventoryTab> = {
+  weapon: 'weapon',
+  helmet: 'armor',
+  chestplate: 'armor',
+  gloves: 'armor',
+  boots: 'armor',
+  accessory: 'accessory',
+};
+
 export default function Game() {
   const {
     state,
@@ -89,6 +110,8 @@ export default function Game() {
     getSellBatchPreview,
     deleteItem,
     generateWorldMap,
+    enterNextMap,
+    restartCurrentMap,
     movePlayer,
     updatePlayerPosition,
     startBattle,
@@ -96,6 +119,12 @@ export default function Game() {
     useSkill,
     endBattle,
     logout,
+    loadAutoBattleConfig,
+    setAutoBattleConfig,
+    startAutoBattle,
+    stopAutoBattle,
+    executeAutoBattle,
+    resetAutoBattleStats,
   } = useGame();
 
   // 计算强化金币消耗
@@ -168,13 +197,14 @@ export default function Game() {
   // 获取总属性 - 直接使用后端返回的已计算值
   // 后端已经计算好了装备加成，前端不需要重复计算
   const getTotalStats = useCallback(() => {
+    const stats = state.stats || { atk: 50, def: 30, spd: 20, critRate: 0, critDmg: 0 };
     return {
-      atk: state.stats.atk,
-      def: state.stats.def,
+      atk: stats.atk,
+      def: stats.def,
       maxHp: state.maxHp,
-      spd: state.stats.spd,
-      critRate: state.stats.critRate,
-      critDmg: state.stats.critDmg,
+      spd: stats.spd,
+      critRate: stats.critRate,
+      critDmg: stats.critDmg,
     };
   }, [state.stats, state.maxHp]);
   
@@ -287,6 +317,39 @@ export default function Game() {
     return `${name} +${value}${isPercent ? '%' : ''}`;
   };
 
+  // 背包页签状态
+  const [inventoryTab, setInventoryTab] = useState<InventoryTab>('all');
+  
+  // 获取排序和过滤后的背包物品
+  const getSortedInventory = useCallback(() => {
+    // 先过滤
+    let items = state.inventory;
+    if (inventoryTab !== 'all') {
+      items = items.filter(item => SlotCategories[item.slot] === inventoryTab);
+    }
+    
+    // 获取已穿戴装备的ID集合
+    const equippedIds = new Set(
+      Object.values(state.equippedItems)
+        .filter(item => item !== null)
+        .map(item => item!.id)
+    );
+    
+    // 排序：已穿戴的排在前面
+    return items.sort((a, b) => {
+      const aEquipped = equippedIds.has(a.id) ? 0 : 1;
+      const bEquipped = equippedIds.has(b.id) ? 0 : 1;
+      return aEquipped - bEquipped;
+    });
+  }, [state.inventory, state.equippedItems, inventoryTab]);
+  
+  // 检查物品是否已穿戴
+  const isItemEquipped = useCallback((item: EquipmentItem): boolean => {
+    return Object.values(state.equippedItems).some(
+      equipped => equipped !== null && equipped.id === item.id
+    );
+  }, [state.equippedItems]);
+
   // 登录界面
   if (!state.isLoggedIn) {
     return (
@@ -372,6 +435,9 @@ export default function Game() {
             <button className={`${styles.btn} ${styles.btnDanger}`} onClick={logout}>🚪 退出</button>
           </div>
         </header>
+
+        {/* 世界喇叭 */}
+        <WorldBroadcast broadcasts={state.broadcasts} />
 
         {/* 主页签 */}
         <div className={styles.mainTabs}>
@@ -487,6 +553,24 @@ export default function Game() {
             <section className={styles.inventoryPanel}>
               <h2>🎒 背包 <span>{state.inventory.length}/50</span></h2>
               
+              {/* 背包页签 */}
+              <div className={styles.inventoryTabs}>
+                {(['all', 'weapon', 'armor', 'accessory'] as InventoryTab[]).map((tab) => {
+                  const count = tab === 'all' 
+                    ? state.inventory.length 
+                    : state.inventory.filter(i => SlotCategories[i.slot] === tab).length;
+                  return (
+                    <button
+                      key={tab}
+                      className={`${styles.inventoryTab} ${inventoryTab === tab ? styles.active : ''}`}
+                      onClick={() => setInventoryTab(tab)}
+                    >
+                      {InventoryTabNames[tab]}({count})
+                    </button>
+                  );
+                })}
+              </div>
+              
               {/* 一键售卖按钮组 */}
               <div className={styles.sellBatchButtons}>
                 <span className={styles.sellBatchLabel}>一键售卖:</span>
@@ -510,14 +594,16 @@ export default function Game() {
               </div>
               
               <div className={styles.inventoryGrid}>
-                {state.inventory.map((item) => (
+                {getSortedInventory().map((item) => (
                   <div
                     key={item.id}
-                    className={`${styles.inventoryItem} ${selectedItem?.id === item.id ? styles.selected : ''} ${styles[`quality_${item.quality}`]}`}
+                    className={`${styles.inventoryItem} ${selectedItem?.id === item.id ? styles.selected : ''} ${styles[`quality_${item.quality}`]} ${isItemEquipped(item) ? styles.equipped : ''}`}
                     onClick={() => setSelectedItem(selectedItem?.id === item.id ? null : item)}
                     onMouseEnter={(e) => showTooltip(e, item)}
                     onMouseLeave={hideTooltip}
                   >
+                    {/* 穿戴标识 */}
+                    {isItemEquipped(item) && <div className={styles.equippedBadge} />}
                     <div className={styles.itemIcon} style={{ borderColor: QualityColors[item.quality] }}>
                       {SlotIcons[item.slot]}
                     </div>
@@ -525,6 +611,9 @@ export default function Game() {
                     {item.isBroken && <div className={styles.brokenBadge}>💔</div>}
                   </div>
                 ))}
+                {getSortedInventory().length === 0 && (
+                  <div className={styles.inventoryEmpty}>暂无装备</div>
+                )}
               </div>
             </section>
 
@@ -534,17 +623,20 @@ export default function Game() {
                 <h2>📋 装备操作</h2>
                 <div className={styles.itemDetail}>
                   <div className={styles.itemHeader}>
-                    <span style={{ color: QualityColors[selectedItem.quality] }}>
-                      {selectedItem.name || `${QualityNames[selectedItem.quality]}${SlotNames[selectedItem.slot]}`}
-                    </span>
-                    <span className={`${styles.enhanceLevel} ${getEnhanceClass(selectedItem.level)}`}>
-                      +{selectedItem.level}
-                    </span>
-                    {selectedItem.equipLevel && selectedItem.equipLevel > 1 && (
-                      <span className={styles.equipLevel}>
-                        Lv.{selectedItem.equipLevel}
+                    <div className={styles.itemTitleRow}>
+                      <span style={{ color: QualityColors[selectedItem.quality] }}>
+                        {selectedItem.name || `${QualityNames[selectedItem.quality]}${SlotNames[selectedItem.slot]}`}
                       </span>
-                    )}
+                      <span className={`${styles.enhanceLevel} ${getEnhanceClass(selectedItem.level)}`}>
+                        +{selectedItem.level}
+                      </span>
+                    </div>
+                    <span 
+                      className={styles.qualityBadge}
+                      style={{ background: QualityColors[selectedItem.quality] }}
+                    >
+                      {QualityNames[selectedItem.quality]}
+                    </span>
                   </div>
                   <div className={styles.affixList}>
                     <div className={styles.mainAffix}>
@@ -556,6 +648,11 @@ export default function Game() {
                         {affix.upgradeCount && <span className={styles.upgradeStars}>{'☆'.repeat(affix.upgradeCount)}</span>}
                       </div>
                     ))}
+                    {selectedItem.equipLevel && selectedItem.equipLevel > 1 && (
+                      <div className={styles.affixListFooter}>
+                        <span className={styles.equipLevelBadge}>Lv.{selectedItem.equipLevel}</span>
+                      </div>
+                    )}
                   </div>
                   <div className={styles.actionButtons}>
                     <button
@@ -567,13 +664,18 @@ export default function Game() {
                         ? `需要Lv.${selectedItem.equipLevel}`
                         : '穿戴'}
                     </button>
-                    <button
-                      className={`${styles.btn} ${styles.btnSuccess}`}
-                      onClick={() => enhanceItem(selectedItem)}
-                      disabled={selectedItem.isBroken || selectedItem.level >= 21 || state.gold < getEnhanceCost(selectedItem.level)}
-                    >
-                      强化 ({getEnhanceCost(selectedItem.level)}💰)
-                    </button>
+                    <div className={styles.enhanceButtonWrapper}>
+                      <button
+                        className={`${styles.btn} ${styles.btnSuccess}`}
+                        onClick={() => enhanceItem(selectedItem)}
+                        disabled={selectedItem.isBroken || selectedItem.level >= 21 || state.gold < getEnhanceCost(selectedItem.level)}
+                      >
+                        强化 ({getEnhanceCost(selectedItem.level)}💰)
+                      </button>
+                      {selectedItem.level >= 10 && !selectedItem.isBroken && selectedItem.level < 21 && (
+                        <span className={styles.breakWarning}>⚠️ +10以上有碎裂风险!</span>
+                      )}
+                    </div>
                     <button 
                       className={`${styles.btn} ${styles.btnDanger}`}
                       onClick={() => openSingleSellConfirm(selectedItem)}
@@ -635,6 +737,117 @@ export default function Game() {
               />
             ) : (
               <div className={styles.worldMapContainer}>
+                {/* 自动战斗控制面板 */}
+                <section className={styles.autoBattlePanel}>
+                  <h3>🤖 自动战斗</h3>
+                  
+                  {/* 状态显示 */}
+                  <div className={styles.autoBattleStats}>
+                    <div className={styles.statItem}>
+                      <span className={styles.statIcon}>⚔️</span>
+                      <span className={styles.statValue}>{state.autoBattle.stats.battlesWon}</span>
+                      <span className={styles.statLabel}>战斗</span>
+                    </div>
+                    <div className={styles.statItem}>
+                      <span className={styles.statIcon}>💰</span>
+                      <span className={styles.statValue}>{state.autoBattle.stats.goldEarned}</span>
+                      <span className={styles.statLabel}>金币</span>
+                    </div>
+                    <div className={styles.statItem}>
+                      <span className={styles.statIcon}>✨</span>
+                      <span className={styles.statValue}>{state.autoBattle.stats.expEarned}</span>
+                      <span className={styles.statLabel}>经验</span>
+                    </div>
+                  </div>
+                  
+                  {/* 配置选项 */}
+                  <div className={styles.autoBattleConfig}>
+                    <label className={styles.configRow}>
+                      <span>挑战最终Boss</span>
+                      <input
+                        type="checkbox"
+                        checked={!state.autoBattle.skipFinalBoss}
+                        onChange={(e) => setAutoBattleConfig({ skipFinalBoss: !e.target.checked })}
+                      />
+                    </label>
+                    
+                    <label className={styles.configRow}>
+                      <span>最低血量: {state.autoBattle.minHpPercent}%</span>
+                      <input
+                        type="range"
+                        min="10"
+                        max="80"
+                        value={state.autoBattle.minHpPercent}
+                        onChange={(e) => setAutoBattleConfig({ minHpPercent: parseInt(e.target.value) })}
+                      />
+                    </label>
+                    
+                    <label className={styles.configRow}>
+                      <span>战斗间隔: {state.autoBattle.battleInterval}ms</span>
+                      <input
+                        type="range"
+                        min="200"
+                        max="2000"
+                        step="100"
+                        value={state.autoBattle.battleInterval}
+                        onChange={(e) => setAutoBattleConfig({ battleInterval: parseInt(e.target.value) })}
+                      />
+                    </label>
+                    
+                    <div className={styles.autoSellConfig}>
+                      <span>自动售卖品质:</span>
+                      <div className={styles.qualityToggles}>
+                        {(['normal', 'rare', 'epic'] as const).map(q => (
+                          <label key={q} className={styles.qualityToggle}>
+                            <input
+                              type="checkbox"
+                              checked={state.autoBattle.autoSellQualities.includes(q)}
+                              onChange={(e) => {
+                                const newQualities = e.target.checked
+                                  ? [...state.autoBattle.autoSellQualities, q]
+                                  : state.autoBattle.autoSellQualities.filter(x => x !== q);
+                                setAutoBattleConfig({ autoSellQualities: newQualities });
+                              }}
+                            />
+                            <span style={{ color: QualityColors[q] }}>{QualityNames[q]}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 控制按钮 */}
+                  <div className={styles.autoBattleControls}>
+                    {state.autoBattle.isRunning ? (
+                      <button 
+                        className={`${styles.btn} ${styles.btnDanger} ${styles.btnFull}`}
+                        onClick={stopAutoBattle}
+                      >
+                        ⏹️ 停止自动战斗
+                      </button>
+                    ) : (
+                      <button 
+                        className={`${styles.btn} ${styles.btnSuccess} ${styles.btnFull}`}
+                        onClick={startAutoBattle}
+                        disabled={state.currentHp <= state.maxHp * (state.autoBattle.minHpPercent / 100)}
+                      >
+                        ▶️ 开始自动战斗
+                      </button>
+                    )}
+                    <button 
+                        className={`${styles.btn} ${styles.btnSmall} ${styles.btnFull}`}
+                        onClick={resetAutoBattleStats}
+                      >
+                        🔄 重置统计
+                      </button>
+                  </div>
+                  
+                  {state.autoBattle.stats.autoSoldCount > 0 && (
+                    <div className={styles.autoSellStats}>
+                      已自动售出 {state.autoBattle.stats.autoSoldCount} 件，获得 {state.autoBattle.stats.autoSoldGold} 金币
+                    </div>
+                  )}
+                </section>
                 {/* 左侧小地图导航 */}
                 <section className={styles.miniMapSidebar}>
                   <div className={styles.miniMapOverviewFixed}>
@@ -658,6 +871,13 @@ export default function Game() {
                   <div className={styles.mapProgress}>
                     等级 {state.gameMap.zones?.[0]?.monsterLevel?.[0] || 1}-{state.gameMap.zones?.[state.gameMap.zones.length - 1]?.monsterLevel?.[1] || 10}
                   </div>
+                  <button 
+                    className={styles.restartButton}
+                    onClick={restartCurrentMap}
+                    title="重新开始当前地图"
+                  >
+                    🔄 重置地图
+                  </button>
                 </section>
                 <section className={styles.mapView}>
                   <div className={pixiStyles.pixiMapContainer}>
@@ -753,11 +973,19 @@ export default function Game() {
       {tooltip.visible && tooltip.item && (
         <div className={styles.tooltip} style={{ left: tooltip.x, top: tooltip.y }}>
           <div className={styles.tooltipHeader}>
-            <span style={{ color: QualityColors[tooltip.item.quality] }}>
-              {tooltip.item.name || `${QualityNames[tooltip.item.quality]}${SlotNames[tooltip.item.slot]}`}
-            </span>
-            <span className={`${styles.enhanceLevel} ${getEnhanceClass(tooltip.item.level)}`}>
-              +{tooltip.item.level}
+            <div className={styles.itemTitleRow}>
+              <span style={{ color: QualityColors[tooltip.item.quality] }}>
+                {tooltip.item.name || `${QualityNames[tooltip.item.quality]}${SlotNames[tooltip.item.slot]}`}
+              </span>
+              <span className={`${styles.enhanceLevel} ${getEnhanceClass(tooltip.item.level)}`}>
+                +{tooltip.item.level}
+              </span>
+            </div>
+            <span 
+              className={styles.qualityBadge}
+              style={{ background: QualityColors[tooltip.item.quality] }}
+            >
+              {QualityNames[tooltip.item.quality]}
             </span>
           </div>
           <div className={styles.affixList}>
@@ -770,6 +998,11 @@ export default function Game() {
                 {affix.upgradeCount && <span className={styles.upgradeStars}>{'☆'.repeat(affix.upgradeCount)}</span>}
               </div>
             ))}
+            {tooltip.item.equipLevel && tooltip.item.equipLevel > 1 && (
+              <div className={styles.affixListFooter}>
+                <span className={styles.equipLevelBadge}>Lv.{tooltip.item.equipLevel}</span>
+              </div>
+            )}
           </div>
           {tooltip.item.isBroken && <div className={styles.tooltipBroken}>💔 已损坏</div>}
         </div>
@@ -805,20 +1038,32 @@ function BattleView({ battle, playerAttack, useSkill, endBattle, playerHp, playe
       <div className={styles.battleArena}>
         {/* 玩家 */}
         <div className={styles.battleEntity}>
-          <div className={styles.entityName}>🧙 玩家</div>
-          <div className={styles.entityHpBar}>
-            <div 
-              className={styles.hpFill} 
-              style={{ width: `${(playerHp / playerMaxHp) * 100}%`, background: '#4CAF50' }}
-            />
+          <div className={styles.entityAvatar}>🧙</div>
+          <div className={styles.entityName}>玩家</div>
+          <div className={styles.hpContainer}>
+            <div className={styles.hpLabel}>❤️ 生命</div>
+            <div className={styles.entityHpBar}>
+              <div 
+                className={styles.hpFill} 
+                style={{ width: `${(playerHp / playerMaxHp) * 100}%`, background: 'linear-gradient(90deg, #2e7d32, #4CAF50)' }}
+              />
+            </div>
+            <div className={styles.hpNumbers}>
+              <span className={styles.hpCurrent}>{playerHp}</span>
+              <span className={styles.hpSeparator}>/</span>
+              <span className={styles.hpMax}>{playerMaxHp}</span>
+              <span className={styles.hpPercent}>({Math.round((playerHp / playerMaxHp) * 100)}%)</span>
+            </div>
           </div>
-          <div className={styles.hpText}>{playerHp}/{playerMaxHp}</div>
-          <div className={styles.rageBar}>
-            <div 
-              className={styles.rageFill} 
-              style={{ width: `${battle.playerRage}%` }}
-            />
-            <span className={styles.rageText}>怒气: {battle.playerRage}%</span>
+          <div className={styles.rageContainer}>
+            <div className={styles.rageLabel}>🔥 怒气</div>
+            <div className={styles.rageBar}>
+              <div 
+                className={styles.rageFill} 
+                style={{ width: `${battle.playerRage}%` }}
+              />
+            </div>
+            <div className={styles.rageNumbers}>{battle.playerRage}%</div>
           </div>
         </div>
         
@@ -826,17 +1071,26 @@ function BattleView({ battle, playerAttack, useSkill, endBattle, playerHp, playe
         
         {/* 怪物 */}
         <div className={styles.battleEntity}>
-          <div className={styles.entityName}>
-            {battle.monsterType === 'boss' ? '🐉' : battle.monsterType === 'elite' ? '💀' : '👹'} {battle.monsterName}
+          <div className={styles.entityAvatar}>
+            {battle.monsterType === 'boss' ? '🐉' : battle.monsterType === 'elite' ? '💀' : '👹'}
           </div>
+          <div className={styles.entityName}>{battle.monsterName}</div>
           <div className={styles.monsterLevel}>Lv.{battle.monsterLevel}</div>
-          <div className={styles.entityHpBar}>
-            <div 
-              className={styles.hpFill} 
-              style={{ width: `${(battle.monsterHp / battle.monsterMaxHp) * 100}%`, background: '#f44336' }}
-            />
+          <div className={styles.hpContainer}>
+            <div className={styles.hpLabel}>❤️ 生命</div>
+            <div className={styles.entityHpBar}>
+              <div 
+                className={styles.hpFill} 
+                style={{ width: `${(battle.monsterHp / battle.monsterMaxHp) * 100}%`, background: 'linear-gradient(90deg, #b71c1c, #f44336)' }}
+              />
+            </div>
+            <div className={styles.hpNumbers}>
+              <span className={styles.hpCurrent}>{battle.monsterHp}</span>
+              <span className={styles.hpSeparator}>/</span>
+              <span className={styles.hpMax}>{battle.monsterMaxHp}</span>
+              <span className={styles.hpPercent}>({Math.round((battle.monsterHp / battle.monsterMaxHp) * 100)}%)</span>
+            </div>
           </div>
-          <div className={styles.hpText}>{battle.monsterHp}/{battle.monsterMaxHp}</div>
         </div>
       </div>
       
@@ -966,6 +1220,99 @@ function MiniMapOverview({ map }: { map: GameMap }) {
           title={boss.name}
         />
       ))}
+    </div>
+  );
+}
+
+// 世界广播组件
+interface WorldBroadcastProps {
+  broadcasts: BroadcastMessage[];
+}
+
+// 品质颜色配置
+const BroadcastQualityColors: Record<Quality, string> = {
+  normal: '#9e9e9e',
+  rare: '#4fc3f7',
+  epic: '#ba68c8',
+  legendary: '#ff9800',
+  mythic: '#ff4444',
+};
+
+// 渲染带颜色的广播消息
+function renderBroadcastMessage(message: string, items?: BroadcastItem[]) {
+  if (!items || items.length === 0) {
+    return message;
+  }
+  
+  // 替换消息中的装备名称为带颜色的 span
+  let result = message;
+  items.forEach((item) => {
+    // 替换 【装备名】 格式
+    const coloredName = `<span style="color: ${BroadcastQualityColors[item.quality]}; font-weight: bold;">【${item.name}】</span>`;
+    result = result.replace(`【${item.name}】`, coloredName);
+  });
+  
+  return result;
+}
+
+function WorldBroadcast({ broadcasts }: WorldBroadcastProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [animationKey, setAnimationKey] = useState(0); // 用于重置动画
+  const scrollCountRef = useRef(0);
+  
+  // 监听动画结束事件，滚动3次后切换下一条
+  const handleAnimationEnd = useCallback(() => {
+    scrollCountRef.current++;
+    
+    if (scrollCountRef.current >= 3) {
+      // 滚动3次后切换到下一条
+      scrollCountRef.current = 0;
+      setCurrentIndex((prev) => (prev + 1) % broadcasts.length);
+      setAnimationKey((prev) => prev + 1); // 重置动画
+    }
+  }, [broadcasts.length]);
+  
+  // 当广播列表变化时，重置到最新的一条
+  useEffect(() => {
+    if (broadcasts.length > 0) {
+      setCurrentIndex(0);
+      scrollCountRef.current = 0;
+      setAnimationKey((prev) => prev + 1);
+    }
+  }, [broadcasts.length]);
+  
+  if (broadcasts.length === 0) {
+    return (
+      <div className={styles.broadcastBar}>
+        <div className={styles.broadcastIcon}>📢</div>
+        <div className={styles.broadcastContent}>
+          <span className={styles.broadcastStaticText}>暂无世界消息</span>
+        </div>
+      </div>
+    );
+  }
+  
+  const currentBroadcast = broadcasts[currentIndex];
+  if (!currentBroadcast) return null;
+  
+  const coloredMessage = renderBroadcastMessage(currentBroadcast.message, currentBroadcast.items);
+  
+  return (
+    <div className={styles.broadcastBar}>
+      <div className={styles.broadcastIcon}>
+        {currentBroadcast.type === 'enhance' ? '✨' : '🎁'}
+      </div>
+      <div className={styles.broadcastContent}>
+        <span 
+          key={animationKey}
+          className={styles.broadcastScrollText}
+          onAnimationEnd={handleAnimationEnd}
+          dangerouslySetInnerHTML={{ __html: coloredMessage }}
+        />
+        <span className={styles.broadcastCount}>
+          ({currentIndex + 1}/{broadcasts.length})
+        </span>
+      </div>
     </div>
   );
 }

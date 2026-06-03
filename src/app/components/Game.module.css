@@ -202,6 +202,75 @@
   color: #ffd700;
 }
 
+/* 世界广播样式 */
+.broadcastBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), rgba(255, 152, 0, 0.1));
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.broadcastIcon {
+  font-size: 20px;
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.broadcastContent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  position: relative;
+  min-height: 24px;
+}
+
+.broadcastStaticText {
+  color: #888;
+  font-size: 14px;
+}
+
+.broadcastScrollText {
+  color: #ffd700;
+  font-size: 14px;
+  white-space: nowrap;
+  position: absolute;
+  animation: scrollLeft 10s linear infinite;
+}
+
+@keyframes scrollLeft {
+  0% {
+    left: 100%;
+    transform: translateX(0);
+  }
+  100% {
+    left: 0;
+    transform: translateX(-100%);
+  }
+}
+
+.broadcastCount {
+  color: #888;
+  font-size: 12px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+  position: absolute;
+  right: 0;
+}
+
 .mainTabs {
   display: flex;
   gap: 8px;
@@ -400,6 +469,8 @@
   border-radius: 12px;
   padding: 20px;
   border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
 }
 
 .inventoryPanel h2 {
@@ -414,6 +485,40 @@
   font-size: 14px;
 }
 
+/* 背包页签 */
+.inventoryTabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.inventoryTab {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: #888;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.inventoryTab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+}
+
+.inventoryTab.active {
+  background: linear-gradient(135deg, #4a90d9, #6366f1);
+  color: white;
+  box-shadow: 0 2px 8px rgba(74, 144, 217, 0.3);
+}
+
 .sellBatchButtons {
   display: flex;
   align-items: center;
@@ -422,11 +527,13 @@
   padding: 10px;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 8px;
+  flex-wrap: wrap;
 }
 
 .sellBatchLabel {
   font-size: 12px;
   color: #888;
+  white-space: nowrap;
 }
 
 .btnSmall {
@@ -479,46 +586,119 @@
 
 .inventoryGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.inventoryGrid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.inventoryGrid::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.inventoryGrid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.inventoryGrid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .inventoryItem {
   aspect-ratio: 1;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(30, 30, 50, 0.8), rgba(20, 20, 35, 0.9));
+  border-radius: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   position: relative;
-  transition: all 0.2s;
-  border: 2px solid transparent;
+  transition: all 0.2s ease;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .inventoryItem:hover {
-  background: rgba(0, 0, 0, 0.3);
+  background: linear-gradient(145deg, rgba(40, 40, 70, 0.9), rgba(30, 30, 50, 1));
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .inventoryItem.selected {
   border-color: var(--primary-color);
+  box-shadow: 0 0 15px rgba(74, 144, 217, 0.4);
+}
+
+.inventoryItem.equipped {
+  background: linear-gradient(145deg, rgba(40, 80, 40, 0.6), rgba(20, 50, 20, 0.7));
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.inventoryItem.equipped:hover {
+  background: linear-gradient(145deg, rgba(50, 100, 50, 0.7), rgba(30, 60, 30, 0.8));
+}
+
+/* 穿戴标识 - 左上角实心小圆标 */
+.equippedBadge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(135deg, #4CAF50, #45a049);
+  border-radius: 50%;
+  z-index: 5;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+  animation: equippedPulse 2s ease-in-out infinite;
+}
+
+@keyframes equippedPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.9);
+  }
 }
 
 .itemIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 22px;
   border: 2px solid;
+  background: rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.inventoryItem:hover .itemIcon {
+  transform: scale(1.05);
 }
 
 .itemLevel {
   font-size: 11px;
-  margin-top: 2px;
+  margin-top: 4px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.inventoryEmpty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #666;
+  padding: 40px 20px;
+  font-size: 14px;
 }
 
 .enhanceLevel {
@@ -543,17 +723,41 @@
 
 .brokenBadge {
   position: absolute;
-  top: 2px;
+  bottom: 2px;
   right: 2px;
   font-size: 12px;
 }
 
-/* 品质颜色 */
-.quality_normal { border-color: #9e9e9e; }
-.quality_rare { border-color: #4fc3f7; }
-.quality_epic { border-color: #ba68c8; }
-.quality_legendary { border-color: #ff9800; }
-.quality_mythic { border-color: #ff4444; }
+/* 品质颜色 - 使用发光边框效果 */
+.quality_normal {
+  border-color: rgba(158, 158, 158, 0.5);
+}
+.quality_rare {
+  border-color: rgba(79, 195, 247, 0.5);
+  box-shadow: 0 0 8px rgba(79, 195, 247, 0.2);
+}
+.quality_epic {
+  border-color: rgba(186, 104, 200, 0.5);
+  box-shadow: 0 0 8px rgba(186, 104, 200, 0.2);
+}
+.quality_legendary {
+  border-color: rgba(255, 152, 0, 0.5);
+  box-shadow: 0 0 12px rgba(255, 152, 0, 0.3);
+}
+.quality_mythic {
+  border-color: rgba(255, 68, 68, 0.6);
+  box-shadow: 0 0 15px rgba(255, 68, 68, 0.4);
+  animation: mythicGlow 2s ease-in-out infinite;
+}
+
+@keyframes mythicGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(255, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(255, 68, 68, 0.6);
+  }
+}
 
 /* 操作面板 */
 
@@ -578,9 +782,25 @@
 .itemHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 12px;
   font-size: 16px;
+}
+
+.itemTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qualityBadge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
 }
 
 .affixList {
@@ -588,6 +808,24 @@
   flex-direction: column;
   gap: 4px;
   margin-bottom: 16px;
+  position: relative;
+}
+
+.affixListFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.equipLevelBadge {
+  font-size: 12px;
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
 }
 
 .mainAffix {
@@ -596,7 +834,7 @@
 }
 
 .subAffix {
-  color: #888;
+  color: #fff;
   font-size: 13px;
 }
 
@@ -612,6 +850,32 @@
 
 .actionButtons .btn {
   flex: 1;
+}
+
+.enhanceButtonWrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.enhanceButtonWrapper .btn {
+  width: 100%;
+}
+
+.breakWarning {
+  font-size: 11px;
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 /* 日志面板 */
@@ -697,7 +961,7 @@
 .tooltipHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 8px;
   font-size: 14px;
 }
@@ -823,6 +1087,23 @@
   display: flex;
   gap: 16px;
   font-size: 14px;
+}
+
+.restartButton {
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: all 0.3s ease;
+}
+
+.restartButton:hover {
+  background: linear-gradient(135deg, #ff5252, #ff7043);
+  transform: scale(1.05);
 }
 
 .mapView {
@@ -1068,46 +1349,102 @@
 
 .battleEntity {
   text-align: center;
-  min-width: 150px;
+  min-width: 200px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+}
+
+.entityAvatar {
+  font-size: 48px;
+  margin-bottom: 8px;
 }
 
 .entityName {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+  color: #fff;
 }
 
 .monsterLevel {
   color: #f44336;
   font-size: 14px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.hpContainer {
+  margin-bottom: 12px;
+}
+
+.hpLabel {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
 }
 
 .entityHpBar {
-  height: 20px;
-  background: #333;
-  border-radius: 10px;
+  height: 24px;
+  background: #1a1a1a;
+  border-radius: 12px;
   overflow: hidden;
-  margin-bottom: 4px;
+  border: 2px solid #333;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .hpFill {
   height: 100%;
-  transition: width 0.3s;
+  transition: width 0.5s ease-out;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
 
-.hpText {
-  font-size: 12px;
+.hpNumbers {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.hpCurrent {
+  color: #4CAF50;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.hpSeparator {
+  color: #666;
+}
+
+.hpMax {
   color: #888;
 }
 
-.rageBar {
-  height: 12px;
-  background: #333;
-  border-radius: 6px;
-  overflow: hidden;
+.hpPercent {
+  color: #666;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.rageContainer {
   margin-top: 8px;
-  position: relative;
+}
+
+.rageLabel {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.rageBar {
+  height: 16px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #333;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .rageFill {
@@ -1116,13 +1453,12 @@
   transition: width 0.3s;
 }
 
-.rageText {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 10px;
-  color: white;
+.rageNumbers {
+  text-align: center;
+  font-size: 12px;
+  color: #ff9800;
+  margin-top: 4px;
+  font-weight: bold;
 }
 
 .vsText {
@@ -1434,4 +1770,146 @@
   height: 1px;
   background: rgba(255, 255, 255, 0.1);
   margin: 12px 0;
+}
+
+/* 自动战斗面板样式 */
+.autoBattlePanel {
+  background: var(--card-background);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  width: 280px;
+  flex-shrink: 0;
+}
+
+.autoBattlePanel h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  text-align: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.autoBattleStats {
+  display: flex;
+  justify-content: space-around;
+  padding: 12px 0;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.autoBattleStats .statItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.autoBattleStats .statIcon {
+  font-size: 20px;
+}
+
+.autoBattleStats .statValue {
+  font-size: 18px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.autoBattleStats .statLabel {
+  font-size: 11px;
+  color: #888;
+}
+
+.autoBattleConfig {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.configRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #888;
+}
+
+.configRow input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.configRow input[type="range"] {
+  width: 120px;
+  cursor: pointer;
+}
+
+.autoSellConfig {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.autoSellConfig > span {
+  display: block;
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.qualityToggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qualityToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.qualityToggle input {
+  width: 14px;
+  height: 14px;
+}
+
+.autoBattleControls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.autoSellStats {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 215, 0, 0.1);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #ffd700;
+  text-align: center;
+}
+
+/* 响应式布局调整 */
+@media (max-width: 900px) {
+  .worldMapContainer {
+    flex-direction: column;
+  }
+  
+  .miniMapSidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .autoBattlePanel {
+    width: 100%;
+    max-width: 400px;
+  }
 }

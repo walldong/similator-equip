@@ -1,11 +1,8 @@
 /**
- * 数据库配置
+ * 数据库配置 - MySQL + Redis
  */
 
 const config = {
-  // 数据库类型: sqlite | mysql | mongodb
-  database: process.env.DB_TYPE || 'sqlite',
-  
   // MySQL 配置
   mysql: {
     host: process.env.MYSQL_HOST || 'localhost',
@@ -16,25 +13,15 @@ const config = {
     connectionLimit: 10,
   },
   
-  // MongoDB 配置
-  mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://localhost:27017',
-    database: process.env.MONGODB_DATABASE || 'game',
-  },
-  
   // Redis 配置
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
     password: process.env.REDIS_PASSWORD || '',
-    db: parseInt(process.env.REDIS_DB || '0'),
   },
   
-  // 缓存开关
-  cache: {
-    enabled: process.env.CACHE_ENABLED === 'true',
-    ttl: parseInt(process.env.CACHE_TTL || '300'), // 5分钟
-  }
+  // 服务器配置
+  port: parseInt(process.env.PORT || '3001'),
 };
 
 module.exports = config;

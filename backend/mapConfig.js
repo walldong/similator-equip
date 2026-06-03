@@ -17,8 +17,8 @@ const MAP_CONFIGS = [
       { name: '草原秘境', monsterLevel: [7, 10], hasMiniBoss: true, miniBossName: '草原守护者' },
     ],
     finalBoss: { name: '草原霸主', level: 10 },
-    width: 150,
-    height: 150,
+    width: 40,
+    height: 40,
   },
   {
     id: 2,
@@ -33,8 +33,8 @@ const MAP_CONFIGS = [
       { name: '森林之心', monsterLevel: [17, 20], hasMiniBoss: true, miniBossName: '森林守卫' },
     ],
     finalBoss: { name: '森林之主', level: 20 },
-    width: 175,
-    height: 175,
+    width: 40,
+    height: 40,
   },
   {
     id: 3,
@@ -49,8 +49,8 @@ const MAP_CONFIGS = [
       { name: '沙漠腹地', monsterLevel: [27, 30], hasMiniBoss: true, miniBossName: '沙漠领主' },
     ],
     finalBoss: { name: '沙漠法老', level: 30 },
-    width: 200,
-    height: 200,
+    width: 40,
+    height: 40,
   },
   {
     id: 4,
@@ -65,8 +65,8 @@ const MAP_CONFIGS = [
       { name: '冰封王座', monsterLevel: [37, 40], hasMiniBoss: true, miniBossName: '冰霜守卫' },
     ],
     finalBoss: { name: '冰霜君王', level: 40 },
-    width: 200,
-    height: 200,
+    width: 40,
+    height: 40,
   },
   {
     id: 5,
@@ -81,8 +81,8 @@ const MAP_CONFIGS = [
       { name: '火山之心', monsterLevel: [47, 50], hasMiniBoss: true, miniBossName: '熔岩巨人' },
     ],
     finalBoss: { name: '炎魔王', level: 50 },
-    width: 225,
-    height: 225,
+    width: 40,
+    height: 40,
   },
   {
     id: 6,
@@ -97,8 +97,8 @@ const MAP_CONFIGS = [
       { name: '深渊核心', monsterLevel: [57, 60], hasMiniBoss: true, miniBossName: '深渊守卫' },
     ],
     finalBoss: { name: '深渊魔王', level: 60 },
-    width: 250,
-    height: 250,
+    width: 40,
+    height: 40,
   },
 ];
 

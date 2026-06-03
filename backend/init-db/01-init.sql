@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS equipments (
 CREATE TABLE IF NOT EXISTS game_state (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
-    map_data TEXT,
+    map_data LONGTEXT,
     last_x INT,
     last_y INT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -15,11 +15,25 @@ const MONSTER_NAMES = {
 
 // 默认配置
 const DEFAULT_CONFIG = {
-  monsterDensity: 0.06,
-  eliteRatio: 0.04,
-  bossRatio: 0.008,
-  chestDensity: 0.015,
+  monsterDensity: 0.04, // 固定密度，目标约50只怪物
+  eliteRatio: 0.20, // 精英比例20%
+  bossRatio: 0.01,
+  chestDensity: 0.02,
 };
+
+/**
+ * 计算从当前地图最低等级升到下一地图最低等级所需的总经验
+ * @param {number} minLevel - 当前地图最低等级
+ * @param {number} nextMapMinLevel - 下一地图最低等级
+ * @returns {number} 所需总经验
+ */
+function calculateRequiredExp(minLevel, nextMapMinLevel) {
+  let totalExp = 0;
+  for (let level = minLevel; level < nextMapMinLevel; level++) {
+    totalExp += level * 100;
+  }
+  return totalExp;
+}
 
 // 随机工具
 const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -70,6 +84,9 @@ function generateMap(mapId, playerLevel) {
   const { width, height, zones, finalBoss, terrain } = config;
   const tileSize = 32;
 
+  // 固定密度，目标约50只怪物
+  const mapConfig = { ...DEFAULT_CONFIG };
+
   // 生成格子
   const cells = generateCells(width, height, config);
 
@@ -77,21 +94,21 @@ function generateMap(mapId, playerLevel) {
   addObstacles(cells, width, height);
 
   // 生成普通怪物和精英
-  generateEntities(cells, zones, DEFAULT_CONFIG, width, height);
+  generateEntities(cells, zones, mapConfig, width, height);
 
   // 生成宝箱
   generateChests(cells, DEFAULT_CONFIG.chestDensity, playerLevel, width, height);
 
-  // 生成小Boss（每个区域一个，占3x3格子）
+  // 生成小Boss(每个区域一个,占2x2格子)
   const miniBosses = generateMiniBosses(cells, zones, width, height);
 
-  // 最终Boss不预先生成，等小Boss死后召唤
-  // 但我们需要标记最终Boss将出现的位置（地图中心）
+  // 最终Boss不预先生成,等小Boss死后召唤
+  // 但我们需要标记最终Boss将出现的位置(地图中心)
   const finalBossSpawnX = Math.floor(width / 2);
   const finalBossSpawnY = Math.floor(height / 2);
 
-  // 中心安全区（清理障碍物，为最终Boss预留空间）
-  const safeRadius = 8;
+  // 中心安全区(清理障碍物,为最终Boss预留空间)- 适应40x40地图
+  const safeRadius = 4;
   for (let dy = -safeRadius; dy <= safeRadius; dy++) {
     for (let dx = -safeRadius; dx <= safeRadius; dx++) {
       const x = finalBossSpawnX + dx;
@@ -99,17 +116,17 @@ function generateMap(mapId, playerLevel) {
       if (x > 0 && x < width - 1 && y > 0 && y < height - 1 && cells[y]?.[x]) {
         cells[y][x].walkable = true;
         cells[y][x].terrain = terrain;
-        // 清除普通怪物，但保留中心区域的空地
-        if (Math.abs(dx) <= 3 && Math.abs(dy) <= 3) {
+        // 清除普通怪物,但保留中心区域的空地
+        if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) {
           cells[y][x].entity = undefined;
         }
       }
     }
   }
 
-  // 玩家出生点（中心偏左上）
-  const spawnX = finalBossSpawnX - 5;
-  const spawnY = finalBossSpawnY - 5;
+  // 玩家出生点(中心偏左上)
+  const spawnX = finalBossSpawnX - 3;
+  const spawnY = finalBossSpawnY - 3;
 
   // 计算统计
   const stats = calculateStats(cells, miniBosses, finalBoss);
@@ -164,11 +181,11 @@ function generateCells(width, height, mapConfig) {
  * 添加障碍物
  */
 function addObstacles(cells, width, height) {
-  const obstacleCount = Math.floor(width * height * 0.015);
+  const obstacleCount = Math.floor(width * height * 0.01); // 减少障碍物数量
 
   for (let i = 0; i < obstacleCount; i++) {
-    const x = randomInt(10, width - 10);
-    const y = randomInt(10, height - 10);
+    const x = randomInt(5, width - 5);
+    const y = randomInt(5, height - 5);
     const radius = randomInt(1, 2);
 
     for (let dy = -radius; dy <= radius; dy++) {
@@ -205,14 +222,11 @@ function generateEntities(cells, zones, config, width, height) {
 
       const level = randomInt(zone.monsterLevel[0], zone.monsterLevel[1]);
 
-      // 确定怪物类型和大小
+      // 确定怪物类型和大小(不随机生成Boss,Boss只有小Boss和最终Boss)
       let entityType = 'monster';
       let entitySize = 1;
       const roll = randomFloat(0, 1);
-      if (roll < bossRatio) {
-        entityType = 'boss';
-        entitySize = 3;
-      } else if (roll < bossRatio + eliteRatio) {
+      if (roll < eliteRatio) {
         entityType = 'elite';
         entitySize = 2;
       }
@@ -241,14 +255,15 @@ function generateEntities(cells, zones, config, width, height) {
  */
 function generateMiniBosses(cells, zones, width, height) {
   const miniBosses = [];
-  const bossSize = 3;
-  
-  // 四个小Boss分布在四个角落区域
+  const bossSize = 2; // 小Boss占2x2格子(地图变小了)
+
+  // 四个小Boss分布在四个角落区域(适应40x40地图)
+  const margin = 5; // 距离边缘的间距
   const cornerPositions = [
-    { x: Math.floor(width * 0.15), y: Math.floor(height * 0.15), name: '左上' },    // 左上角
-    { x: Math.floor(width * 0.85), y: Math.floor(height * 0.15), name: '右上' },    // 右上角
-    { x: Math.floor(width * 0.15), y: Math.floor(height * 0.85), name: '左下' },    // 左下角
-    { x: Math.floor(width * 0.85), y: Math.floor(height * 0.85), name: '右下' },    // 右下角
+    { x: margin + 2, y: margin + 2, name: '左上' },
+    { x: width - margin - bossSize - 2, y: margin + 2, name: '右上' },
+    { x: margin + 2, y: height - margin - bossSize - 2, name: '左下' },
+    { x: width - margin - bossSize - 2, y: height - margin - bossSize - 2, name: '右下' },
   ];
 
   zones.forEach((zone, index) => {
@@ -256,14 +271,14 @@ function generateMiniBosses(cells, zones, width, height) {
 
     const corner = cornerPositions[index];
     let placed = false;
-    
+
     // 尝试在角落附近放置
-    for (let attempt = 0; attempt < 50 && !placed; attempt++) {
+    for (let attempt = 0; attempt < 30 && !placed; attempt++) {
       // 从角落向外搜索
-      const offsetX = randomInt(-10, 10);
-      const offsetY = randomInt(-10, 10);
-      const x = Math.max(5, Math.min(width - bossSize - 5, corner.x + offsetX));
-      const y = Math.max(5, Math.min(height - bossSize - 5, corner.y + offsetY));
+      const offsetX = randomInt(-3, 3);
+      const offsetY = randomInt(-3, 3);
+      const x = Math.max(margin, Math.min(width - bossSize - margin, corner.x + offsetX));
+      const y = Math.max(margin, Math.min(height - bossSize - margin, corner.y + offsetY));
 
       if (canPlaceEntity(cells, x, y, bossSize, width, height)) {
         const entity = {
@@ -319,7 +334,7 @@ function generateChests(cells, density, playerLevel, width, height) {
 function getZoneAt(zones, x, y, width, height) {
   const zoneWidth = Math.floor(width / 2);
   const zoneHeight = Math.floor(height / 2);
-  
+
   const zoneX = Math.floor(x / zoneWidth);
   const zoneY = Math.floor(y / zoneHeight);
   const zoneIndex = Math.min(zoneY * 2 + zoneX, zones.length - 1);
@@ -370,13 +385,13 @@ function calculateStats(cells, miniBosses, finalBoss) {
     chests: { total: 0, opened: 0 },
   };
 
-  // 统计时只计算左上角格子（避免重复计数）
+  // 统计时只计算左上角格子(避免重复计数)
   for (let y = 0; y < cells.length; y++) {
     for (let x = 0; x < cells[y].length; x++) {
       const cell = cells[y][x];
       if (!cell.entity) continue;
-      
-      // 只统计实体的左上角格子（id包含坐标）
+
+      // 只统计实体的左上角格子(id包含坐标)
       const entity = cell.entity;
       const idParts = entity.id.split('_');
       const entityX = parseInt(idParts[1]);
@@ -418,10 +433,10 @@ function calculateStats(cells, miniBosses, finalBoss) {
 }
 
 /**
- * 召唤最终Boss（在小Boss全部击败后调用）
+ * 召唤最终Boss(在小Boss全部击败后调用)
  */
 function spawnFinalBoss(cells, finalBoss, spawnX, spawnY) {
-  const bossSize = 4; // 最终Boss占4x4格子
+  const bossSize = 3; // 最终Boss占3x3格子(地图变小了)
 
   // 清理召唤区域
   for (let dy = -1; dy <= bossSize; dy++) {
@@ -462,9 +477,9 @@ function spawnFinalBoss(cells, finalBoss, spawnX, spawnY) {
   return entity;
 }
 
-module.exports = { 
-  generateMap, 
-  getMapConfig, 
+module.exports = {
+  generateMap,
+  getMapConfig,
   MAP_CONFIGS,
   spawnFinalBoss,
 };

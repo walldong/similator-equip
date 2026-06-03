@@ -7,7 +7,7 @@ import { EquipmentSlot, Quality } from '@/types';
 import type { MapCell } from '@/types/map';
 
 // API 基础地址
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // 品质名称映射
 const QualityNames: Record<Quality, string> = {
@@ -17,6 +17,21 @@ const QualityNames: Record<Quality, string> = {
   legendary: '传说',
   mythic: '神话',
 };
+
+// 世界广播消息
+export interface BroadcastItem {
+  name: string;
+  quality: Quality;
+}
+
+export interface BroadcastMessage {
+  id: number;
+  username: string;
+  message: string;
+  type: 'enhance' | 'drop';
+  timestamp: number;
+  items?: BroadcastItem[];
+}
 
 // 游戏状态接口
 export interface GameState {
@@ -40,6 +55,26 @@ export interface GameState {
   logs: LogEntry[];
   gameMap: import('@/types/map').GameMap | null;
   battle: BattleState | null;
+  autoBattle: AutoBattleState;
+  broadcasts: BroadcastMessage[];
+}
+
+// 自动战斗状态
+export interface AutoBattleState {
+  enabled: boolean;
+  skipFinalBoss: boolean;
+  autoSellQualities: Quality[];
+  minHpPercent: number;
+  battleInterval: number;
+  isRunning: boolean;
+  stats: {
+    battlesWon: number;
+    goldEarned: number;
+    expEarned: number;
+    itemsDropped: number;
+    autoSoldCount: number;
+    autoSoldGold: number;
+  };
 }
 
 export interface BattleState {
@@ -146,11 +181,118 @@ export default function useGame() {
     logs: [],
     gameMap: null,
     battle: null,
+    autoBattle: {
+      enabled: false,
+      skipFinalBoss: false, // 默认不跳过最终Boss，打完Boss才停止
+      autoSellQualities: ['normal', 'rare'],
+      minHpPercent: 30,
+      battleInterval: 500,
+      isRunning: false,
+      stats: {
+        battlesWon: 0,
+        goldEarned: 0,
+        expEarned: 0,
+        itemsDropped: 0,
+        autoSoldCount: 0,
+        autoSoldGold: 0,
+      },
+    },
+    broadcasts: [],
   });
 
   const logIdRef = useRef(0);
+  const broadcastIdRef = useRef(0);
   const initializingRef = useRef(false);
   const positionSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoBattleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoBattleRunningRef = useRef(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsReconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // WebSocket 连接管理
+  const connectWebSocket = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    
+    // 确定 WebSocket 地址
+    // 通过前端的代理服务器连接 WebSocket (端口 3000)
+    let wsUrl: string;
+    if (typeof window !== 'undefined') {
+      const host = window.location.host; // 包含端口号
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      wsUrl = `${protocol}://${host}`;
+    } else {
+      wsUrl = 'ws://localhost:3000';
+    }
+    
+    console.log('[WebSocket] 正在连接:', wsUrl);
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('[WebSocket] 已连接到服务器');
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // 处理广播消息
+          if (data.type === 'broadcast') {
+            const entry: BroadcastMessage = {
+              id: ++broadcastIdRef.current,
+              username: data.username,
+              message: data.message,
+              type: data.broadcastType,
+              timestamp: data.timestamp,
+              items: data.items,
+            };
+            setState((prev) => ({
+              ...prev,
+              broadcasts: [entry, ...prev.broadcasts.slice(0, 9)],
+            }));
+          }
+        } catch (err) {
+          // 忽略无效消息
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log('[WebSocket] 连接关闭，准备重连...');
+        wsRef.current = null;
+        // 5秒后重连
+        wsReconnectTimerRef.current = setTimeout(connectWebSocket, 5000);
+      };
+      
+      ws.onerror = (err) => {
+        console.error('[WebSocket] 连接错误:', err);
+      };
+      
+    } catch (err) {
+      console.error('[WebSocket] 创建连接失败:', err);
+      // 5秒后重试
+      wsReconnectTimerRef.current = setTimeout(connectWebSocket, 5000);
+    }
+  }, []);
+
+  // 登录成功后连接 WebSocket
+  useEffect(() => {
+    if (state.isLoggedIn) {
+      connectWebSocket();
+    }
+    
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (wsReconnectTimerRef.current) {
+        clearTimeout(wsReconnectTimerRef.current);
+        wsReconnectTimerRef.current = null;
+      }
+    };
+  }, [state.isLoggedIn, connectWebSocket]);
 
   // 添加日志
   const addLog = useCallback((text: string, type: LogEntry['type'] = 'info') => {
@@ -171,6 +313,7 @@ export default function useGame() {
     });
   }, []);
 
+  // 强化成功广播文案（达到12级及以上）
   // 自动登录
   useEffect(() => {
     if (initializingRef.current) return;
@@ -184,11 +327,14 @@ export default function useGame() {
     }
   }, []);
 
-  // 清理位置保存定时器
+  // 清理位置保存定时器和自动战斗定时器
   useEffect(() => {
     return () => {
       if (positionSaveTimerRef.current) {
         clearTimeout(positionSaveTimerRef.current);
+      }
+      if (autoBattleTimerRef.current) {
+        clearTimeout(autoBattleTimerRef.current);
       }
     };
   }, []);
@@ -416,20 +562,23 @@ export default function useGame() {
         }));
         addLog(data.message + `(消耗 ${data.cost} 金币)`, 'fail');
       } else if (data.success) {
+        const newLevel = data.data.level;
+        const equipName = item.name || `${QualityNames[item.quality]}${item.slot}`;
+        
         // 强化成功,更新装备和金币
         setState((prev) => ({
           ...prev,
           gold: data.gold ?? prev.gold,
           inventory: prev.inventory.map((i) =>
             i.id === item.id
-              ? { ...i, level: data.data.level, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes, sellPrice: data.data.sellPrice }
+              ? { ...i, level: newLevel, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes, sellPrice: data.data.sellPrice }
               : i
           ),
           equippedItems: {
             ...prev.equippedItems,
             [item.slot]:
               prev.equippedItems[item.slot]?.id === item.id
-                ? { ...prev.equippedItems[item.slot]!, level: data.data.level, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes, sellPrice: data.data.sellPrice }
+                ? { ...prev.equippedItems[item.slot]!, level: newLevel, mainAffix: data.data.mainAffix, subAffixes: data.data.subAffixes, sellPrice: data.data.sellPrice }
                 : prev.equippedItems[item.slot],
           },
         }));
@@ -440,7 +589,7 @@ export default function useGame() {
     } catch (error) {
       addLog('强化失败', 'fail');
     }
-  }, [state.userId, addLog]);
+  }, [state.userId, state.username, addLog]);
 
   // 删除装备
   // 售卖装备
@@ -607,6 +756,12 @@ export default function useGame() {
       if (data.success && data.data) {
         gameMap = data.data;
         addLog(`🗺️ 进入 ${data.mapInfo?.name || '新地图'}`, 'success');
+      } else if (data.message?.includes('用户不存在')) {
+        // 用户不存在，清除登录状态
+        addLog('⚠️ 用户信息已过期，请重新登录', 'warning');
+        localStorage.removeItem('gameUsername');
+        setState((prev) => ({ ...prev, isLoggedIn: false, userId: null }));
+        return;
       }
     } else {
       addLog('🗺️ 地图数据已加载', 'success');
@@ -632,6 +787,21 @@ export default function useGame() {
       addLog(`🎉 进入新地图: ${data.mapInfo?.name}`, 'success');
     }
   }, [state.userId, state.level, state.gameMap?.mapId, addLog]);
+
+  // 重新开始当前地图
+  const restartCurrentMap = useCallback(async () => {
+    if (!state.userId) return;
+
+    const data = await apiCall('/worldmap/restart', {
+      method: 'POST',
+      body: JSON.stringify({ userId: state.userId }),
+    });
+
+    if (data.success && data.data) {
+      setState((prev) => ({ ...prev, gameMap: data.data }));
+      addLog(`🔄 重新开始地图: ${data.mapInfo?.name}`, 'warning');
+    }
+  }, [state.userId, addLog]);
 
   // 防抖动保存位置(轻量级)
   const savePositionDebounced = useCallback((cellX: number, cellY: number) => {
@@ -1054,6 +1224,11 @@ export default function useGame() {
   // 退出登录
   const logout = useCallback(() => {
     localStorage.removeItem('gameUsername');
+    // 停止自动战斗
+    autoBattleRunningRef.current = false;
+    if (autoBattleTimerRef.current) {
+      clearTimeout(autoBattleTimerRef.current);
+    }
     setState({
       isLoggedIn: false,
       userId: null,
@@ -1076,7 +1251,365 @@ export default function useGame() {
       logs: [],
       gameMap: null,
       battle: null,
+      autoBattle: {
+        enabled: false,
+        skipFinalBoss: false, // 默认不跳过最终Boss
+        autoSellQualities: ['normal', 'rare'],
+        minHpPercent: 30,
+        battleInterval: 500,
+        isRunning: false,
+        stats: {
+          battlesWon: 0,
+          goldEarned: 0,
+          expEarned: 0,
+          itemsDropped: 0,
+          autoSoldCount: 0,
+          autoSoldGold: 0,
+        },
+      },
+      broadcasts: [],
     });
+  }, []);
+
+  // ==================== 自动战斗相关方法 ====================
+
+  // 加载自动战斗配置
+  const loadAutoBattleConfig = useCallback(async () => {
+    if (!state.userId) return;
+    
+    try {
+      const data = await apiCall(`/auto-battle/config/${state.userId}`);
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          autoBattle: {
+            ...prev.autoBattle,
+            ...data.data,
+            isRunning: prev.autoBattle.isRunning, // 保持当前运行状态
+          },
+        }));
+      }
+    } catch (error) {
+      console.error('加载自动战斗配置失败:', error);
+    }
+  }, [state.userId]);
+
+  // 设置自动战斗配置
+  const setAutoBattleConfig = useCallback(async (config: Partial<AutoBattleState>) => {
+    if (!state.userId) return;
+    
+    try {
+      const data = await apiCall('/auto-battle/config', {
+        method: 'POST',
+        body: JSON.stringify({ userId: state.userId, config }),
+      });
+      
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          autoBattle: {
+            ...prev.autoBattle,
+            ...data.data,
+          },
+        }));
+      }
+    } catch (error) {
+      console.error('设置自动战斗配置失败:', error);
+    }
+  }, [state.userId]);
+
+  // 执行一次自动战斗
+  const executeAutoBattle = useCallback(async (): Promise<{ success: boolean; message?: string; data?: any; mapCleared?: boolean }> => {
+    if (!state.userId) return { success: false, message: '未登录' };
+    
+    try {
+      const data = await apiCall('/auto-battle/execute', {
+        method: 'POST',
+        body: JSON.stringify({ userId: state.userId }),
+      });
+      
+      if (data.success && data.data) {
+        const result = data.data;
+        
+        if (result.victory) {
+          // 更新状态
+          setState(prev => {
+            if (!prev.gameMap) return prev;
+            
+            const entity = result.entity;
+            const entitySize = entity?.size || 1;
+            const idParts = entity?.id?.split('_') || [];
+            
+            let startX: number, startY: number;
+            if (entity?.isMiniBoss) {
+              startX = parseInt(idParts[2]) || result.cellX;
+              startY = parseInt(idParts[3]) || result.cellY;
+            } else if (entity?.isFinalBoss) {
+              startX = parseInt(idParts[1]) || result.cellX;
+              startY = parseInt(idParts[2]) || result.cellY;
+            } else {
+              startX = parseInt(idParts[1]) || result.cellX;
+              startY = parseInt(idParts[2]) || result.cellY;
+            }
+            
+            const updatedCells = prev.gameMap.cells.map((row, rowIdx) =>
+              row.map((c, colIdx): import('@/types/map').MapCell => {
+                const dx = colIdx - startX;
+                const dy = rowIdx - startY;
+                if (dx >= 0 && dx < entitySize && dy >= 0 && dy < entitySize && 
+                    c.entity?.id === entity?.id) {
+                  return { ...c, entity: { ...c.entity!, defeated: true }, walkable: true };
+                }
+                return c;
+              })
+            );
+            
+            const newMiniBossesDefeated = entity?.isMiniBoss 
+              ? (prev.gameMap.miniBossesDefeated || 0) + 1 
+              : (prev.gameMap.miniBossesDefeated || 0);
+            
+            return {
+              ...prev,
+              level: result.userData.level,
+              exp: result.userData.exp,
+              gold: result.userData.gold,
+              currentHp: result.userData.currentHp,
+              maxHp: result.userData.maxHp,
+              stats: result.userData.stats,
+              inventory: result.userData.inventory,
+              equippedItems: result.userData.equippedItems,
+              gameMap: {
+                ...prev.gameMap,
+                cells: updatedCells,
+                miniBossesDefeated: newMiniBossesDefeated,
+                finalBossSpawned: result.finalBossSpawned || prev.gameMap.finalBossSpawned,
+                player: {
+                  ...prev.gameMap.player,
+                  cellX: result.playerPosition?.cellX || prev.gameMap.player.cellX,
+                  cellY: result.playerPosition?.cellY || prev.gameMap.player.cellY,
+                  x: (result.playerPosition?.cellX || prev.gameMap.player.cellX) * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
+                  y: (result.playerPosition?.cellY || prev.gameMap.player.cellY) * prev.gameMap.tileSize + prev.gameMap.tileSize / 2,
+                },
+              },
+              autoBattle: {
+                ...prev.autoBattle,
+                stats: {
+                  battlesWon: prev.autoBattle.stats.battlesWon + 1,
+                  goldEarned: prev.autoBattle.stats.goldEarned + (result.rewards?.gold || 0) + (result.autoSold?.totalPrice || 0),
+                  expEarned: prev.autoBattle.stats.expEarned + (result.rewards?.exp || 0),
+                  itemsDropped: prev.autoBattle.stats.itemsDropped + (result.rewards?.items || 0),
+                  autoSoldCount: prev.autoBattle.stats.autoSoldCount + (result.autoSold?.count || 0),
+                  autoSoldGold: prev.autoBattle.stats.autoSoldGold + (result.autoSold?.totalPrice || 0),
+                },
+              },
+            };
+          });
+          
+          // 显示升级信息
+          if (result.levelUps && result.levelUps.length > 0) {
+            result.levelUps.forEach((level: number) => {
+              addLog(`🎉 升级到 ${level} 级!`, 'success');
+            });
+          }
+          
+          addLog(`⚔️ 自动击败 ${result.entity?.name}，获得 ${result.rewards?.gold}💰 ${result.rewards?.exp}✨`, 'success');
+          
+          if (result.autoSold?.count > 0) {
+            addLog(`💰 自动售出 ${result.autoSold.count} 件装备，获得 ${result.autoSold.totalPrice} 金币`, 'info');
+          }
+          
+          if (result.finalBossSpawned) {
+            addLog(`🔥 ${result.finalBossName} 已在地图中心召唤!`, 'warning');
+          }
+          
+          // 如果击败了最终Boss，地图通关
+          if (result.finalBossDefeated || result.mapCleared) {
+            addLog(`🏆 击败了最终Boss! 地图通关!`, 'success');
+            return { success: true, data: result, mapCleared: true };
+          }
+          
+          return { success: true, data: result };
+        } else {
+          // 战斗失败
+          setState(prev => ({
+            ...prev,
+            currentHp: result.userData?.currentHp || prev.currentHp,
+            autoBattle: {
+              ...prev.autoBattle,
+              isRunning: false,
+            },
+          }));
+          
+          addLog(`💀 自动战斗失败`, 'fail');
+          return { success: false, message: '战斗失败', data: result };
+        }
+      }
+      
+      return { success: false, message: data.message, data };
+    } catch (error) {
+      console.error('自动战斗执行失败:', error);
+      return { success: false, message: '网络错误' };
+    }
+  }, [state.userId, addLog]);
+
+  // 开始自动战斗循环
+  const startAutoBattle = useCallback(async () => {
+    if (!state.userId || autoBattleRunningRef.current) return;
+    
+    // 设置运行标志
+    autoBattleRunningRef.current = true;
+    
+    // 更新配置
+    await setAutoBattleConfig({ enabled: true });
+    
+    setState(prev => ({
+      ...prev,
+      autoBattle: {
+        ...prev.autoBattle,
+        isRunning: true,
+        enabled: true,
+      },
+    }));
+    
+    addLog('🤖 开始自动战斗', 'info');
+    
+    // 定义循环执行函数
+    const runAutoBattle = async () => {
+      if (!autoBattleRunningRef.current) return;
+      
+      const result = await executeAutoBattle();
+      
+      if (result.success) {
+        // 检查是否击败了最终Boss
+        if (result.mapCleared || result.data?.finalBossDefeated) {
+          autoBattleRunningRef.current = false;
+          addLog(`🏆 地图已完全清理，最终Boss已被击败!`, 'success');
+          setState(prev => ({
+            ...prev,
+            autoBattle: { ...prev.autoBattle, isRunning: false },
+          }));
+          return;
+        }
+        // 继续下一次
+        autoBattleTimerRef.current = setTimeout(runAutoBattle, state.autoBattle.battleInterval);
+      } else if (result.data?.needHeal) {
+        // 血量不足，暂停
+        autoBattleRunningRef.current = false;
+        addLog(`⚠️ 血量不足，自动战斗暂停`, 'warning');
+        setState(prev => ({
+          ...prev,
+          autoBattle: { ...prev.autoBattle, isRunning: false },
+        }));
+      } else if (result.data?.mapCleared || result.data?.finalBossDefeated) {
+        // 地图已完全清理
+        autoBattleRunningRef.current = false;
+        addLog(`🏆 地图已完全清理，最终Boss已被击败!`, 'success');
+        setState(prev => ({
+          ...prev,
+          autoBattle: { ...prev.autoBattle, isRunning: false },
+        }));
+      } else if (result.data?.mapExplored) {
+        // 地图探索完毕
+        autoBattleRunningRef.current = false;
+        addLog(`🎉 地图探索完毕!`, 'success');
+        setState(prev => ({
+          ...prev,
+          autoBattle: { ...prev.autoBattle, isRunning: false },
+        }));
+      } else {
+        // 其他错误，暂停
+        autoBattleRunningRef.current = false;
+        setState(prev => ({
+          ...prev,
+          autoBattle: { ...prev.autoBattle, isRunning: false },
+        }));
+      }
+    };
+    
+    // 立即执行第一次
+    const result = await executeAutoBattle();
+    
+    if (result.success) {
+      // 检查是否击败了最终Boss
+      if (result.mapCleared || result.data?.finalBossDefeated) {
+        autoBattleRunningRef.current = false;
+        addLog(`🏆 地图已完全清理，最终Boss已被击败!`, 'success');
+        setState(prev => ({
+          ...prev,
+          autoBattle: { ...prev.autoBattle, isRunning: false },
+        }));
+        return;
+      }
+      autoBattleTimerRef.current = setTimeout(runAutoBattle, state.autoBattle.battleInterval);
+    } else if (result.data?.needHeal) {
+      autoBattleRunningRef.current = false;
+      addLog(`⚠️ 血量不足，自动战斗暂停`, 'warning');
+      setState(prev => ({
+        ...prev,
+        autoBattle: { ...prev.autoBattle, isRunning: false },
+      }));
+    } else if (result.data?.mapCleared || result.data?.finalBossDefeated) {
+      autoBattleRunningRef.current = false;
+      addLog(`🏆 地图已完全清理，最终Boss已被击败!`, 'success');
+      setState(prev => ({
+        ...prev,
+        autoBattle: { ...prev.autoBattle, isRunning: false },
+      }));
+    } else if (result.data?.mapExplored) {
+      autoBattleRunningRef.current = false;
+      addLog(`🎉 地图探索完毕!`, 'success');
+      setState(prev => ({
+        ...prev,
+        autoBattle: { ...prev.autoBattle, isRunning: false },
+      }));
+    } else {
+      autoBattleRunningRef.current = false;
+      setState(prev => ({
+        ...prev,
+        autoBattle: { ...prev.autoBattle, isRunning: false },
+      }));
+    }
+  }, [state.userId, state.autoBattle.battleInterval, executeAutoBattle, setAutoBattleConfig, addLog]);
+
+  // 停止自动战斗
+  const stopAutoBattle = useCallback(async () => {
+    autoBattleRunningRef.current = false;
+    
+    if (autoBattleTimerRef.current) {
+      clearTimeout(autoBattleTimerRef.current);
+      autoBattleTimerRef.current = null;
+    }
+    
+    await setAutoBattleConfig({ enabled: false });
+    
+    setState(prev => ({
+      ...prev,
+      autoBattle: {
+        ...prev.autoBattle,
+        isRunning: false,
+        enabled: false,
+      },
+    }));
+    
+    addLog('⏹️ 停止自动战斗', 'info');
+  }, [setAutoBattleConfig, addLog]);
+
+  // 重置自动战斗统计
+  const resetAutoBattleStats = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      autoBattle: {
+        ...prev.autoBattle,
+        stats: {
+          battlesWon: 0,
+          goldEarned: 0,
+          expEarned: 0,
+          itemsDropped: 0,
+          autoSoldCount: 0,
+          autoSoldGold: 0,
+        },
+      },
+    }));
   }, []);
 
   return {
@@ -1095,6 +1628,7 @@ export default function useGame() {
     addLog,
     generateWorldMap,
     enterNextMap,
+    restartCurrentMap,
     movePlayer,
     updatePlayerPosition,
     startBattle,
@@ -1102,6 +1636,13 @@ export default function useGame() {
     useSkill,
     endBattle,
     logout,
+    // 自动战斗
+    loadAutoBattleConfig,
+    setAutoBattleConfig,
+    startAutoBattle,
+    stopAutoBattle,
+    executeAutoBattle,
+    resetAutoBattleStats,
   };
 }
 

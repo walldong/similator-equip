@@ -49,8 +49,10 @@ function createDatabase(config) {
             slot VARCHAR(20) NOT NULL,
             level INT DEFAULT 0,
             quality VARCHAR(20) DEFAULT 'normal',
+            equip_level INT DEFAULT 1,
             is_broken TINYINT DEFAULT 0,
             equipped TINYINT DEFAULT 0,
+            name VARCHAR(50),
             main_affix_stat VARCHAR(30),
             main_affix_value INT,
             sub_affixes TEXT,
@@ -65,13 +67,36 @@ function createDatabase(config) {
           CREATE TABLE IF NOT EXISTS game_state (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL UNIQUE,
-            map_data TEXT,
+            map_data LONGTEXT,
             last_x INT,
             last_y INT,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        
+        // 迁移：为已存在的表添加新字段
+        try {
+          // 检查是否存在 equip_level 列
+          const [columns] = await conn.execute('SHOW COLUMNS FROM equipments LIKE "equip_level"');
+          if (columns.length === 0) {
+            await conn.execute('ALTER TABLE equipments ADD COLUMN equip_level INT DEFAULT 1 AFTER quality');
+            console.log('[MySQL] 添加 equip_level 列');
+          }
+        } catch (e) {
+          // 表不存在或迁移失败，忽略
+        }
+        
+        try {
+          // 检查是否存在 name 列
+          const [columns] = await conn.execute('SHOW COLUMNS FROM equipments LIKE "name"');
+          if (columns.length === 0) {
+            await conn.execute('ALTER TABLE equipments ADD COLUMN name VARCHAR(50) AFTER equipped');
+            console.log('[MySQL] 添加 name 列');
+          }
+        } catch (e) {
+          // 表不存在或迁移失败，忽略
+        }
         
         console.log('[MySQL] 数据表初始化完成');
       } finally {
@@ -164,16 +189,18 @@ function createDatabase(config) {
     
     createEquipment(userId, equipment) {
       const stmt = `
-        INSERT INTO equipments (user_id, slot, level, quality, is_broken, equipped, main_affix_stat, main_affix_value, sub_affixes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO equipments (user_id, slot, level, quality, equip_level, is_broken, equipped, name, main_affix_stat, main_affix_value, sub_affixes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       return pool.execute(stmt, [
         userId,
         equipment.slot,
         equipment.level || 0,
         equipment.quality || 'normal',
+        equipment.equipLevel || 1,
         equipment.isBroken ? 1 : 0,
         equipment.equipped ? 1 : 0,
+        equipment.name || null,
         equipment.mainAffix?.stat || null,
         equipment.mainAffix?.value || 0,
         JSON.stringify(equipment.subAffixes || [])
@@ -191,8 +218,10 @@ function createDatabase(config) {
           slot: row.slot,
           level: row.level,
           quality: row.quality,
+          equipLevel: row.equip_level || 1,
           isBroken: row.is_broken === 1,
           equipped: row.equipped === 1,
+          name: row.name || null,
           mainAffix: { stat: row.main_affix_stat, value: row.main_affix_value },
           subAffixes: JSON.parse(row.sub_affixes || '[]'),
           user_id: row.user_id
@@ -209,8 +238,10 @@ function createDatabase(config) {
             slot: row.slot,
             level: row.level,
             quality: row.quality,
+            equipLevel: row.equip_level || 1,
             isBroken: row.is_broken === 1,
             equipped: row.equipped === 1,
+            name: row.name || null,
             mainAffix: { stat: row.main_affix_stat, value: row.main_affix_value },
             subAffixes: JSON.parse(row.sub_affixes || '[]'),
             user_id: row.user_id
