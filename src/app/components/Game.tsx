@@ -1246,12 +1246,10 @@ function ForgePanel({
     setEnhanceResult(null);
     setWaitingForResult(true);
 
-    // 执行强化
+    // 执行强化 - 动画时间等于接口请求时间
     await enhanceItem(forgeItem);
     
-    // 动画效果 - 约1秒
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
+    // 接口返回后立即结束动画，显示结果
     setIsEnhancing(false);
     // 注意：不在这里设置结果，等待 useEffect 检测
   }, [forgeItem, isEnhancing, gold, getEnhanceCost, enhanceItem, addLog]);
