@@ -718,18 +718,6 @@ export default function Game() {
                         ? `需要Lv.${selectedItem.equipLevel}`
                         : '穿戴'}
                     </button>
-                    <div className={styles.enhanceButtonWrapper}>
-                      <button
-                        className={`${styles.btn} ${styles.btnSuccess}`}
-                        onClick={() => enhanceItem(selectedItem)}
-                        disabled={selectedItem.isBroken || selectedItem.level >= 21 || state.gold < getEnhanceCost(selectedItem.level)}
-                      >
-                        强化 ({getEnhanceCost(selectedItem.level)}💰)
-                      </button>
-                      {selectedItem.level >= 10 && !selectedItem.isBroken && selectedItem.level < 21 && (
-                        <span className={styles.breakWarning}>⚠️ +10以上有碎裂风险!</span>
-                      )}
-                    </div>
                     <button 
                       className={`${styles.btn} ${styles.btnDanger}`}
                       onClick={() => openSingleSellConfirm(selectedItem)}
@@ -1374,7 +1362,7 @@ function ForgePanel({
               {enhanceResult === 'success' && (
                 <>
                   <div className={styles.resultIcon}>✨</div>
-                  <div className={styles.resultText}>恭喜你，强化成功+1！</div>
+                  <div className={styles.resultText}>恭喜你，强化成功！</div>
                 </>
               )}
               {enhanceResult === 'fail' && (
