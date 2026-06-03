@@ -70,6 +70,14 @@ const SLOT_NAMES = {
     accessory: '首饰'
 };
 
+const QUALITY_NAMES = {
+    normal: '普通',
+    rare: '稀有',
+    epic: '史诗',
+    legendary: '传说',
+    mythic: '神话'
+};
+
 // 怪物名称
 const MONSTER_NAMES = {
     normal: ['哥布林', '史莱姆', '野狼', '骷髅兵', '蝙蝠'],
@@ -702,6 +710,7 @@ module.exports = {
     BASE_VALUES,
     STAT_NAMES,
     SLOT_NAMES,
+    QUALITY_NAMES,
     SLOT_MAIN_STAT,
     MONSTER_NAMES
 };
