@@ -908,9 +908,8 @@ app.post('/api/battle/end', async (req, res) => {
       const rewards = battle.rewards || GameLogic.calculateBattleRewards(battle.monsterType, battle.monsterLevel);
       const levelResult = GameLogic.processLevelUp(user.level, user.exp, rewards.exp);
 
-      // 击败怪物后恢复30%最大生命值
-      const healAmount = Math.floor(battle.playerMaxHp * 0.3);
-      const newHp = Math.min(battle.playerMaxHp, battle.playerHp + healAmount);
+      // 战斗胜利后恢复全部生命值
+      const newHp = battle.playerMaxHp;
 
       await db.updateUser(user.id, {
         level: levelResult.level,
@@ -947,7 +946,7 @@ app.post('/api/battle/end', async (req, res) => {
 
       responseData = {
         victory: true,
-        healAmount,
+        healAmount: battle.playerMaxHp, // 恢复全部血量
         rewards: {
           exp: rewards.exp,
           gold: rewards.gold,
@@ -968,19 +967,19 @@ app.post('/api/battle/end', async (req, res) => {
         monsterCellY: battle.monsterCellY
       };
 
-      console.log(`[战斗] 用户 ${user.username} 胜利 获得 ${rewards.exp}经验 ${rewards.gold}金币 ${rewards.items.length}装备 恢复${healAmount}生命值`);
+      console.log(`[战斗] 用户 ${user.username} 胜利 获得 ${rewards.exp}经验 ${rewards.gold}金币 ${rewards.items.length}装备 恢复全部生命值`);
     } else {
-      // 战斗失败,恢复到战斗前的血量
-      const originalHp = battle.originalPlayerHp || battle.playerMaxHp;
-      await db.updateUser(user.id, { current_hp: originalHp });
+      // 战斗失败,恢复全部血量
+      const maxHp = battle.playerMaxHp;
+      await db.updateUser(user.id, { current_hp: maxHp });
       await invalidateUserCache(user.id);
 
       responseData = {
         victory: false,
-        userData: { currentHp: originalHp }
+        userData: { currentHp: maxHp }
       };
 
-      console.log(`[战斗] 用户 ${user.username} 战斗失败,恢复血量到 ${originalHp}`);
+      console.log(`[战斗] 用户 ${user.username} 战斗失败,恢复全部血量(${maxHp})`);
     }
 
     await cache.del(`battle:${battleId}`);
@@ -1654,9 +1653,8 @@ app.post('/api/auto-battle/execute', async (req, res) => {
       const rewards = GameLogic.calculateBattleRewards(monsterType, monsterLevel);
       const levelResult = GameLogic.processLevelUp(user.level, user.exp, rewards.exp);
       
-      // 恢复30%生命
-      const healAmount = Math.floor(battle.playerMaxHp * 0.3);
-      const newHp = Math.min(battle.playerMaxHp, battle.playerHp + healAmount);
+      // 恢复全部生命
+      const newHp = battle.playerMaxHp;
       
       await db.updateUser(user.id, {
         level: levelResult.level,
@@ -1777,20 +1775,149 @@ app.post('/api/auto-battle/execute', async (req, res) => {
       
       console.log(`[自动战斗] 用户 ${user.username} 自动击败 ${nearestEntity.name}，获得 ${rewards.gold}金币 ${rewards.exp}经验`);
     } else {
-      // 战斗失败
-      const originalHp = battle.originalPlayerHp;
-      await db.updateUser(user.id, { current_hp: originalHp });
+      // 战斗失败，恢复全部血量
+      const maxHp = battle.playerMaxHp;
+      await db.updateUser(user.id, { current_hp: maxHp });
       await invalidateUserCache(userId);
       
-      responseData.userData = { currentHp: originalHp }; 
+      // 返回详细失败信息
+      responseData.userData = { currentHp: maxHp }; 
       responseData.battleLogs = battleLogs.slice(-10); 
+      responseData.playerStats = playerStats; // 玩家属性
+      responseData.monsterStats = {
+        name: nearestEntity.name,
+        level: monsterLevel,
+        type: monsterType,
+        atk: battle.monsterAtk,
+        def: battle.monsterDef,
+        maxHp: battle.monsterMaxHp,
+      }; // 怪物属性
+      responseData.battleFailed = true; // 标记战斗失败
+      responseData.suggestion = {
+        type: monsterType,
+        message: monsterType === 'boss' 
+          ? 'Boss战失败，建议强化装备到+10以上或更换更高品质装备后再挑战'
+          : monsterType === 'elite'
+          ? '精英怪战失败，建议强化装备或提升等级后再挑战'
+          : '普通怪战失败，建议检查装备是否已穿戴、是否需要强化',
+        needAtk: Math.ceil(battle.monsterMaxHp / 5), // 建议攻击力(5回合击败)
+        needDef: Math.ceil(battle.monsterAtk * 0.5), // 建议防御力(减少一半伤害)
+      }; // 提升建议
       
-      console.log(`[自动战斗] 用户 ${user.username} 自动战斗失败，恢复血量到 ${originalHp}`);
+      console.log(`[自动战斗] 用户 ${user.username} 自动战斗失败 vs ${nearestEntity.name}，恢复全部血量(${maxHp})`);
+      console.log(`[自动战斗] 玩家属性: ATK=${playerStats.atk}, DEF=${playerStats.def}, HP=${playerStats.maxHp}`);
+      console.log(`[自动战斗] 怪物属性: ATK=${battle.monsterAtk}, DEF=${battle.monsterDef}, HP=${battle.monsterMaxHp}`);
     }
     
     res.json({ success: true, data: responseData });
   } catch (error) {
     console.error('[自动战斗错误]', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// ==================== 宝箱 API ====================
+
+// 打开宝箱
+app.post('/api/chest/open', async (req, res) => {
+  try {
+    const { userId, cellX, cellY } = req.body;
+    
+    if (!userId || typeof cellX !== 'number' || typeof cellY !== 'number') {
+      return res.status(400).json({ success: false, message: '参数不完整' });
+    }
+    
+    const user = await validateUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+    
+    // 获取地图数据
+    const state = await db.getGameState(userId);
+    if (!state || !state.mapData || !state.mapData.cells) {
+      return res.status(404).json({ success: false, message: '地图数据不存在' });
+    }
+    
+    const cells = state.mapData.cells;
+    const cell = cells[cellY]?.[cellX];
+    
+    if (!cell || !cell.entity || cell.entity.type !== 'chest') {
+      return res.status(404).json({ success: false, message: '该位置没有宝箱' });
+    }
+    
+    if (cell.entity.defeated) {
+      return res.status(400).json({ success: false, message: '宝箱已打开' });
+    }
+    
+    // 检查玩家是否在宝箱位置
+    const playerX = state.mapData.player.cellX;
+    const playerY = state.mapData.player.cellY;
+    if (playerX !== cellX || playerY !== cellY) {
+      return res.status(400).json({ success: false, message: '请先移动到宝箱位置' });
+    }
+    
+    // 生成宝箱奖励
+    const chestLevel = cell.entity.level || user.level;
+    const rewards = GameLogic.calculateBattleRewards('normal', chestLevel);
+    
+    // 添加奖励
+    const newGold = user.gold + rewards.gold;
+    const levelResult = GameLogic.processLevelUp(user.level, user.exp, rewards.exp);
+    
+    // 创建装备
+    for (const item of rewards.items) {
+      await db.createEquipment(user.id, { ...item, equipped: false });
+    }
+    
+    // 更新用户数据
+    await db.updateUser(user.id, {
+      level: levelResult.level,
+      exp: levelResult.exp,
+      gold: newGold,
+    });
+    
+    // 标记宝箱为已打开
+    cells[cellY][cellX].entity.defeated = true;
+    cells[cellY][cellX].walkable = true;
+    
+    // 更新统计
+    if (state.mapData.stats) {
+      state.mapData.stats.chests = state.mapData.stats.chests || { total: 0, opened: 0 };
+      state.mapData.stats.chests.opened++;
+    }
+    
+    // 保存地图
+    await db.saveGameState(userId, state.mapData, cellX, cellY);
+    await invalidateUserCache(userId);
+    
+    const userData = await getUserFullData(userId);
+    
+    console.log(`[宝箱] 用户 ${user.username} 打开宝箱，获得 ${rewards.gold}金币 ${rewards.exp}经验 ${rewards.items.length}件装备`);
+    
+    res.json({
+      success: true,
+      message: `打开宝箱获得 ${rewards.gold}金币 ${rewards.exp}经验 ${rewards.items.length}件装备`,
+      data: {
+        rewards: {
+          gold: rewards.gold,
+          exp: rewards.exp,
+          items: rewards.items,
+        },
+        userData: {
+          level: levelResult.level,
+          exp: levelResult.exp,
+          gold: newGold,
+          currentHp: userData.user.current_hp,
+          maxHp: userData.stats.maxHp,
+          stats: userData.stats,
+          inventory: userData.inventory,
+          equippedItems: userData.equippedItems,
+        },
+        levelUps: levelResult.levelUps,
+      },
+    });
+  } catch (error) {
+    console.error('[打开宝箱错误]', error);
     res.status(500).json({ success: false, message: '服务器错误' });
   }
 });

@@ -1221,6 +1221,69 @@ export default function useGame() {
     }
   }, [state.battle, addLog, updateEntityDefeated, savePosition, enterNextMap]);
 
+  // 打开宝箱
+  const openChest = useCallback(async (cellX: number, cellY: number) => {
+    if (!state.userId) return;
+
+    try {
+      const data = await apiCall('/chest/open', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: state.userId,
+          cellX,
+          cellY,
+        }),
+      });
+
+      if (data.success) {
+        const result = data.data;
+        
+        // 更新玩家数据
+        setState((prev) => {
+          if (!prev.gameMap) return prev;
+          
+          // 标记宝箱为已打开
+          const updatedCells = prev.gameMap.cells.map((row, rowIdx) =>
+            row.map((c, colIdx): MapCell => {
+              if (colIdx === cellX && rowIdx === cellY && c.entity?.type === 'chest') {
+                return { ...c, entity: { ...c.entity!, defeated: true }, walkable: true };
+              }
+              return c;
+            })
+          );
+          
+          return {
+            ...prev,
+            level: result.userData.level,
+            exp: result.userData.exp,
+            gold: result.userData.gold,
+            stats: result.userData.stats,
+            maxHp: result.userData.maxHp,
+            inventory: result.userData.inventory,
+            equippedItems: result.userData.equippedItems,
+            gameMap: {
+              ...prev.gameMap,
+              cells: updatedCells,
+            },
+          };
+        });
+        
+        // 显示奖励
+        if (result.levelUps && result.levelUps.length > 0) {
+          result.levelUps.forEach((level: number) => {
+            addLog(`🎉 升级到 ${level} 级!`, 'success');
+          });
+        }
+        
+        addLog(`📦 打开宝箱获得 ${result.rewards.gold} 金币, ${result.rewards.exp} 经验, ${result.rewards.items.length} 件装备`, 'success');
+      } else {
+        addLog(data.message || '打开宝箱失败', 'warning');
+      }
+    } catch (error) {
+      addLog('打开宝箱失败', 'fail');
+    }
+  }, [state.userId, addLog]);
+
   // 退出登录
   const logout = useCallback(() => {
     localStorage.removeItem('gameUsername');
@@ -1319,7 +1382,7 @@ export default function useGame() {
   }, [state.userId]);
 
   // 执行一次自动战斗
-  const executeAutoBattle = useCallback(async (): Promise<{ success: boolean; message?: string; data?: any; mapCleared?: boolean }> => {
+  const executeAutoBattle = useCallback(async (): Promise<{ success: boolean; message?: string; data?: any; mapCleared?: boolean; battleFailed?: boolean }> => {
     if (!state.userId) return { success: false, message: '未登录' };
     
     try {
@@ -1440,8 +1503,35 @@ export default function useGame() {
             },
           }));
           
-          addLog(`💀 自动战斗失败`, 'fail');
-          return { success: false, message: '战斗失败', data: result };
+          // 详细的失败提示
+          const entity = result.entity;
+          const suggestion = result.suggestion;
+          const monsterStats = result.monsterStats;
+          const playerStats = result.playerStats;
+          
+          const monsterInfo = entity ? `${entity.name}(Lv.${entity.level})` : '怪物';
+          addLog(`💀 自动战斗失败！被 ${monsterInfo} 击败`, 'fail');
+          
+          // 显示属性对比
+          if (monsterStats && playerStats) {
+            addLog(`📊 你: ATK=${playerStats.atk} DEF=${playerStats.def} HP=${playerStats.maxHp}`, 'info');
+            addLog(`📊 敌: ATK=${monsterStats.atk} DEF=${monsterStats.def} HP=${monsterStats.maxHp}`, 'info');
+          }
+          
+          // 显示建议
+          if (suggestion) {
+            addLog(`💡 ${suggestion.message}`, 'warning');
+            if (suggestion.needAtk) {
+              addLog(`💡 建议攻击力: ${suggestion.needAtk}+ (当前${playerStats?.atk || '?'})`, 'info');
+            }
+            if (suggestion.needDef) {
+              addLog(`💡 建议防御力: ${suggestion.needDef}+ (当前${playerStats?.def || '?'})`, 'info');
+            }
+          } else {
+            addLog(`💡 建议提升装备强化等级或获取更好品质的装备后重试`, 'warning');
+          }
+          
+          return { success: false, message: '战斗失败，需要提升实力', data: result, battleFailed: true };
         }
       }
       
@@ -1492,6 +1582,14 @@ export default function useGame() {
         }
         // 继续下一次
         autoBattleTimerRef.current = setTimeout(runAutoBattle, state.autoBattle.battleInterval);
+      } else if (result.battleFailed) {
+        // 战斗失败，需要提升实力
+        autoBattleRunningRef.current = false;
+        addLog(`⏹️ 自动战斗已停止，请提升实力后重试`, 'warning');
+        setState(prev => ({
+          ...prev,
+          autoBattle: { ...prev.autoBattle, isRunning: false },
+        }));
       } else if (result.data?.needHeal) {
         // 血量不足，暂停
         autoBattleRunningRef.current = false;
@@ -1541,6 +1639,14 @@ export default function useGame() {
         return;
       }
       autoBattleTimerRef.current = setTimeout(runAutoBattle, state.autoBattle.battleInterval);
+    } else if (result.battleFailed) {
+      // 战斗失败，需要提升实力
+      autoBattleRunningRef.current = false;
+      addLog(`⏹️ 自动战斗已停止，请提升实力后重试`, 'warning');
+      setState(prev => ({
+        ...prev,
+        autoBattle: { ...prev.autoBattle, isRunning: false },
+      }));
     } else if (result.data?.needHeal) {
       autoBattleRunningRef.current = false;
       addLog(`⚠️ 血量不足，自动战斗暂停`, 'warning');
@@ -1635,6 +1741,7 @@ export default function useGame() {
     playerAttack,
     useSkill,
     endBattle,
+    openChest,
     logout,
     // 自动战斗
     loadAutoBattleConfig,

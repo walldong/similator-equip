@@ -118,6 +118,7 @@ export default function Game() {
     playerAttack,
     useSkill,
     endBattle,
+    openChest,
     logout,
     loadAutoBattleConfig,
     setAutoBattleConfig,
@@ -210,13 +211,18 @@ export default function Game() {
   
   // 处理怪物遭遇
   const handleEncounter = useCallback((cell: MapCell) => {
-    if (cell.entity && ['monster', 'elite', 'boss'].includes(cell.entity.type)) {
-      const level = cell.entity.level || state.level;
-      // 转换类型: 'monster' -> 'normal'
-      const monsterType = (cell.entity.type === 'monster' ? 'normal' : cell.entity.type) as 'normal' | 'elite' | 'boss';
-      startBattle(monsterType, level, cell.x, cell.y);
+    if (cell.entity) {
+      if (['monster', 'elite', 'boss'].includes(cell.entity.type)) {
+        // 战斗
+        const level = cell.entity.level || state.level;
+        const monsterType = (cell.entity.type === 'monster' ? 'normal' : cell.entity.type) as 'normal' | 'elite' | 'boss';
+        startBattle(monsterType, level, cell.x, cell.y);
+      } else if (cell.entity.type === 'chest') {
+        // 打开宝箱
+        openChest(cell.x, cell.y);
+      }
     }
-  }, [state.level, startBattle]);
+  }, [state.level, startBattle, openChest]);
   
   // PixiMap 处理键盘和遭遇，这里不再需要
   
