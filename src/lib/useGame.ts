@@ -1140,7 +1140,34 @@ export default function useGame() {
               },
             };
 
-            return {
+            // 如果最终Boss被召唤,需要在cells中添加Boss实体
+          let finalCells = updatedCells;
+          if (entityData?.finalBossSpawned && entityData?.finalBoss) {
+            const bossX = entityData.finalBoss.x - 1; // 中心点向左偏移
+            const bossY = entityData.finalBoss.y - 1; // 中心点向上偏移
+            const bossSize = 3;
+            const bossEntity = {
+              id: `finalboss_${bossX}_${bossY}_${entityData.finalBoss.name}`,
+              type: 'boss' as const,
+              level: entityData.finalBoss.level,
+              name: entityData.finalBoss.name,
+              size: bossSize,
+              isFinalBoss: true,
+            };
+            
+            finalCells = updatedCells.map((row, rowIdx) =>
+              row.map((c, colIdx): MapCell => {
+                const dx = colIdx - bossX;
+                const dy = rowIdx - bossY;
+                if (dx >= 0 && dx < bossSize && dy >= 0 && dy < bossSize) {
+                  return { ...c, entity: bossEntity, walkable: false };
+                }
+                return c;
+              })
+            );
+          }
+          
+          return {
               ...prev,
               battle: null,
               level: result.userData.level,
@@ -1153,7 +1180,7 @@ export default function useGame() {
               equippedItems: result.userData.equippedItems,
               gameMap: {
                 ...prev.gameMap,
-                cells: updatedCells,
+                cells: finalCells,
                 stats: newStats,
                 miniBossesDefeated: newMiniBossesDefeated,
                 finalBossSpawned: entityData?.finalBossSpawned || prev.gameMap.finalBossSpawned,
@@ -1431,6 +1458,33 @@ export default function useGame() {
               ? (prev.gameMap.miniBossesDefeated || 0) + 1 
               : (prev.gameMap.miniBossesDefeated || 0);
             
+            // 如果最终Boss被召唤,需要在cells中添加Boss实体
+            let finalCells = updatedCells;
+            if (result.finalBossSpawned && result.finalBossName) {
+              const bossX = Math.floor(prev.gameMap.width / 2) - 1; // 中心点向左偏移
+              const bossY = Math.floor(prev.gameMap.height / 2) - 1; // 中心点向上偏移
+              const bossSize = 3;
+              const bossEntity = {
+                id: `finalboss_${bossX}_${bossY}_${result.finalBossName}`,
+                type: 'boss' as const,
+                level: prev.gameMap.finalBoss?.level || 25,
+                name: result.finalBossName,
+                size: bossSize,
+                isFinalBoss: true,
+              };
+              
+              finalCells = updatedCells.map((row, rowIdx) =>
+                row.map((c, colIdx): import('@/types/map').MapCell => {
+                  const dx = colIdx - bossX;
+                  const dy = rowIdx - bossY;
+                  if (dx >= 0 && dx < bossSize && dy >= 0 && dy < bossSize) {
+                    return { ...c, entity: bossEntity, walkable: false };
+                  }
+                  return c;
+                })
+              );
+            }
+            
             return {
               ...prev,
               level: result.userData.level,
@@ -1443,7 +1497,7 @@ export default function useGame() {
               equippedItems: result.userData.equippedItems,
               gameMap: {
                 ...prev.gameMap,
-                cells: updatedCells,
+                cells: finalCells,
                 miniBossesDefeated: newMiniBossesDefeated,
                 finalBossSpawned: result.finalBossSpawned || prev.gameMap.finalBossSpawned,
                 player: {
