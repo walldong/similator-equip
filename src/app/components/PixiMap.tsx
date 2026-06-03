@@ -114,7 +114,15 @@ export default function PixiMap({ map, currentHp, maxHp, onMove, onEncounter }: 
           setMoveLock(true);
           
           if (cell.entity && !cell.entity.defeated) {
-            onEncounter(cell);
+            // 对于宝箱，先移动玩家到宝箱位置，然后再打开
+            if (cell.entity.type === 'chest') {
+              onMove(dx, dy);
+              // 等待移动完成后再打开宝箱
+              setTimeout(() => onEncounter(cell), 50);
+            } else {
+              // 对于怪物，触发战斗（战斗胜利后会移动到怪物位置）
+              onEncounter(cell);
+            }
           } else {
             onMove(dx, dy);
           }
