@@ -545,7 +545,8 @@ function executeBattleRound(battle, skillId = null) {
     // 使用相同的防御减免公式
     const monsterBaseDamage = battle.monsterAtk;
     const defReduction = calculateDefReduction(battle.playerStats.def);
-    const monsterDamage = Math.max(1, Math.floor(monsterBaseDamage * defReduction * (0.95 + Math.random() * 0.1)));
+    // 防御减免后的伤害，加上随机浮动
+    const monsterDamage = Math.max(1, Math.floor(monsterBaseDamage * defReduction * (0.9 + Math.random() * 0.2)));
 
     battle.playerHp = Math.max(0, battle.playerHp - monsterDamage);
     battle.monsterRage = Math.min(100, battle.monsterRage + 10);

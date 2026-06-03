@@ -375,7 +375,7 @@ const MONSTER_BASE_STATS = {
         baseSpd: 20,
         // 每等级成长
         hpPerLevel: 50,
-        atkPerLevel: 10,
+        atkPerLevel: 18,  // 提高攻击成长，确保对高防玩家有威胁
         defPerLevel: 5,
         spdPerLevel: 2,
     },
@@ -385,7 +385,7 @@ const MONSTER_BASE_STATS = {
         baseDef: 40,
         baseSpd: 30,
         hpPerLevel: 80,
-        atkPerLevel: 15,
+        atkPerLevel: 32,  // 大幅提高，精英怪应该有威胁
         defPerLevel: 8,
         spdPerLevel: 3,
     },
@@ -395,7 +395,7 @@ const MONSTER_BASE_STATS = {
         baseDef: 80,
         baseSpd: 40,
         hpPerLevel: 120,
-        atkPerLevel: 20,
+        atkPerLevel: 48,  // 小Boss攻击力显著提高
         defPerLevel: 12,
         spdPerLevel: 4,
     },
@@ -405,7 +405,7 @@ const MONSTER_BASE_STATS = {
         baseDef: 120,
         baseSpd: 50,
         hpPerLevel: 200,
-        atkPerLevel: 30,
+        atkPerLevel: 70,  // Boss攻击力大幅提高
         defPerLevel: 20,
         spdPerLevel: 5,
     }

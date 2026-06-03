@@ -339,8 +339,8 @@ export default function Game() {
   
   // 获取排序和过滤后的背包物品
   const getSortedInventory = useCallback(() => {
-    // 先过滤
-    let items = state.inventory;
+    // 先过滤掉undefined/null元素（防御性编程）
+    let items = state.inventory.filter(item => item && item.id);
     if (inventoryTab !== 'all') {
       items = items.filter(item => SlotCategories[item.slot] === inventoryTab);
     }
