@@ -365,48 +365,49 @@ function calculateExpectedDamage(atk, def, critRate = 0, critDmg = 50, skillPerc
 /**
  * 怪物基础属性配置
  * 每种类型有独立的基础属性和成长系数
+ * 根据玩家实际属性水平调整
  */
 const MONSTER_BASE_STATS = {
     normal: {
-        baseHp: 100,
-        baseAtk: 15,
-        baseDef: 5,
-        baseSpd: 10,
-        // 每等级成长
-        hpPerLevel: 20,
-        atkPerLevel: 3,
-        defPerLevel: 2,
-        spdPerLevel: 1,
-    },
-    elite: {
-        baseHp: 200,
-        baseAtk: 25,
-        baseDef: 10,
-        baseSpd: 15,
-        hpPerLevel: 35,
-        atkPerLevel: 5,
-        defPerLevel: 3,
-        spdPerLevel: 1.5,
-    },
-    miniboss: {
-        baseHp: 500,
-        baseAtk: 40,
+        baseHp: 300,
+        baseAtk: 50,
         baseDef: 20,
         baseSpd: 20,
-        hpPerLevel: 60,
-        atkPerLevel: 8,
+        // 每等级成长
+        hpPerLevel: 50,
+        atkPerLevel: 10,
         defPerLevel: 5,
         spdPerLevel: 2,
     },
-    boss: {
-        baseHp: 1000,
-        baseAtk: 60,
-        baseDef: 30,
-        baseSpd: 25,
-        hpPerLevel: 100,
-        atkPerLevel: 12,
+    elite: {
+        baseHp: 600,
+        baseAtk: 80,
+        baseDef: 40,
+        baseSpd: 30,
+        hpPerLevel: 80,
+        atkPerLevel: 15,
         defPerLevel: 8,
         spdPerLevel: 3,
+    },
+    miniboss: {
+        baseHp: 1500,
+        baseAtk: 120,
+        baseDef: 80,
+        baseSpd: 40,
+        hpPerLevel: 120,
+        atkPerLevel: 20,
+        defPerLevel: 12,
+        spdPerLevel: 4,
+    },
+    boss: {
+        baseHp: 3000,
+        baseAtk: 180,
+        baseDef: 120,
+        baseSpd: 50,
+        hpPerLevel: 200,
+        atkPerLevel: 30,
+        defPerLevel: 20,
+        spdPerLevel: 5,
     }
 };
 
