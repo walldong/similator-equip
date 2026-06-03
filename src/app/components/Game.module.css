@@ -246,7 +246,7 @@
   font-size: 14px;
   white-space: nowrap;
   position: absolute;
-  animation: scrollLeft 10s linear infinite;
+  animation: scrollLeft 25s linear infinite;
 }
 
 @keyframes scrollLeft {
